@@ -109,10 +109,13 @@ public class DMHud : MonoBehaviour
 
     const  float param_speed_draw_threshold = 1.0e-1f;
 
-    //temporary data
+    /* cached information about the vessel and the world.
+     * Most of teh calculations are done in the draw pass
+     * because i want to make sure the camera is up to date */
     Vector3 speed          = Vector3.zero;
     Quaternion orientation = Quaternion.identity;
     Vector3 up             = Util.z;
+    Quaternion qhorizon    = Quaternion.identity;
     bool    data_valid     = false;
 
 
@@ -195,16 +198,16 @@ public class DMHud : MonoBehaviour
         }
         return speed;
     }
+    /* end of Steam Gauges code */
 
-    /*  from KerbTrack */
     FlightCamera GetCamera()
     {
         FlightCamera cam = null;
         switch (CameraManager.Instance.currentCameraMode)
         {
             case CameraManager.CameraMode.Flight:
-            case CameraManager.CameraMode.Internal: // Window zoom cameras
-            case CameraManager.CameraMode.IVA: // Main IVA cameras
+            case CameraManager.CameraMode.Internal:
+            case CameraManager.CameraMode.IVA: 
                 {
                     cam = FlightCamera.fetch;
                 }
@@ -232,6 +235,22 @@ public class DMHud : MonoBehaviour
         }
         up = vessel.upAxis;
 
+        /* qhorizon is a frame where the y axis is parallel to vessel.upAxis and the other
+         * axes are perpendicular to that. This tangent plane represents the horizon where
+         * the pitch of the craft is 0.*/
+        CelestialBody body = FlightGlobals.currentMainBody;
+        if (body == null) return;
+
+        Vector3 z = Vector3.Cross(body.angularVelocity, up);
+        if (z.sqrMagnitude < 1.0e-9)
+            z = Vector3.Cross(Util.y, up);
+        if (z.sqrMagnitude < 1.0e-9)
+            z = Vector3.Cross(Util.x, up);
+        if (z.sqrMagnitude < 1.0e-9)
+            return; // fail
+        z.Normalize();
+        qhorizon = Quaternion.LookRotation(z, up);
+
         data_valid = true;
 
 #if DEBUG
@@ -240,22 +259,25 @@ public class DMHud : MonoBehaviour
             FlightCamera cam = GetCamera();
             StringBuilder sb = new StringBuilder(1024);
             sb.AppendLine("--------- Active Vessels -> Up ----------");
-            DMDebug.PrintTransformHierarchyUp(FlightGlobals.ActiveVessel.transform, 0, sb);
+            DMDebug.PrintTransform(vessel.transform, 0, sb);
+            //DMDebug.PrintTransformHierarchyUp(FlightGlobals.ActiveVessel.transform, 0, sb);
             //sb.AppendLine("--------- Reference Transform -> Up ----------");
             //DMDebug.PrintTransformHierarchyUp(FlightGlobals.ActiveVessel.ReferenceTransform, 0, sb);
-            sb.AppendLine("--------- Camera -> Up ----------");
-            DMDebug.PrintTransformHierarchyUp(cam.transform, 0, sb);
+            //sb.AppendLine("--------- Camera -> Up ----------");
+            //DMDebug.PrintTransformHierarchyUp(cam.transform, 0, sb);
             sb.AppendLine("---------- upAxis Frame-------------");
-            Quaternion q = BuildUpFrame(cam, up);
-            Matrix4x4  m = Matrix4x4.TRS(new Vector3(), q, Vector3.one);
+            Matrix4x4  m = Matrix4x4.TRS(new Vector3(), qhorizon, Vector3.one);
             sb.AppendLine("m = \n"+m.ToString("F3"));
-            sb.AppendLine("------------------------------------");
+            sb.AppendLine("------------ body ----------------");
+            sb.AppendLine("body fwd = " + body.GetFwdVector().ToString("F3"));
+            sb.AppendLine("body rotaxis = " + body.angularVelocity.ToString());
+            sb.AppendLine("body zUpAngularVel = " + body.zUpAngularVelocity.ToString());
+            DMDebug.PrintTransform(body.GetTransform(), 0, sb);
+            sb.AppendLine("----------------------------------");
             NavBall ball = FlightUIController.fetch.GetComponentInChildren<NavBall>();
             sb.AppendLine("rel. gimbal = " + ball.relativeGymbal.eulerAngles.ToString("F3"));
-            CelestialBody body = FlightGlobals.currentMainBody;
-            sb.AppendLine("upAxis = " + vessel.upAxis);
-            sb.AppendLine("world CoM = " + vessel.findWorldCenterOfMass());
-
+            sb.AppendLine("upAxis = " + vessel.upAxis.ToString());
+            sb.AppendLine("world CoM = " + vessel.findWorldCenterOfMass().ToString("F3"));
             print(sb.ToString());
         }
 #endif
@@ -270,6 +292,7 @@ public class DMHud : MonoBehaviour
         return true;
     }
 
+#if false
     Quaternion BuildUpFrame(FlightCamera cam, Vector3 up)
     {
         Vector3 z;
@@ -284,6 +307,7 @@ public class DMHud : MonoBehaviour
         }
         return Quaternion.LookRotation(z, up);
     }
+#endif
 
 	protected void OnDraw()
 	{      
@@ -295,13 +319,7 @@ public class DMHud : MonoBehaviour
         /* qvessel points the z axis forward, i.e. when you look at your vessels from behind 
          * or from IVA, your camera z axis which is the direction you are looking to and
          * the z-axis of the qvessel frame are parallel */
-        Quaternion qvessel  = orientation * qfix;
-        /* qhorizon is a frame where the y axis is parallel to vessel.upAxis and the other
-         * axes are perpendicular to that. This tangent plane represents the horizon where
-         * the pitch of the craft is 0. This plane is also tangent to the plantary surface.
-         * In addition BuildUpFrame tries to align the z axis with the looking direction. */
-        Quaternion qhorizon = BuildUpFrame(cam, up);
-        
+        Quaternion qvessel  = orientation * qfix;       
         Quaternion qroll = qhorizon.Inverse() * qvessel;
         float roll = qroll.eulerAngles.z;
                 
@@ -314,7 +332,7 @@ public class DMHud : MonoBehaviour
          * vessel roll relative to the horizon line as shown by the screen indicators
          * would net represent their true orientations, i.e. showing parallel lines although
          * actual roll is non-zero. */
-        float relative_roll = camroll + roll + 180f;
+        float relative_roll = camroll + roll + 180.0f;
         
         Vector3 heading              = qvessel * Util.z;
         Vector3 up_in_cam_frame      = cam.transform.InverseTransformDirection(up);
@@ -353,7 +371,7 @@ public class DMHud : MonoBehaviour
             if (CheckScreenPosition(cam.mainCamera, screen_pos))
             {
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
-                GUIExt.DrawTextureCentered(screen_pos, speed_in_cam_frame.z > 0 ? marker_forward : marker_backward);
+                GUIExt.DrawTextureCentered(screen_pos, heading_in_cam_frame.z > 0 ? marker_forward : marker_backward);
                 GUI.matrix = Matrix4x4.identity;
 
                 GUIUtility.RotateAroundPivot(camroll, screen_pos);
