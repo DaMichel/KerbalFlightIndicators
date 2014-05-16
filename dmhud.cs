@@ -52,7 +52,7 @@ public static class Util
 
     public static Texture2D LoadTexture(String filename, int width, int height)
     {
-        Byte[] data = KSP.IO.File.ReadAllBytes<DMHud>(filename);
+        Byte[] data = KSP.IO.File.ReadAllBytes<KerbalFlightIndicators>(filename);
         Texture2D tex = new Texture2D(width, height);
         tex.LoadImage(data);
         return tex;
@@ -98,7 +98,7 @@ public static class DMDebug
 
 
 [KSPAddon(KSPAddon.Startup.Flight, false)]
-public class DMHud : MonoBehaviour
+public class KerbalFlightIndicators : MonoBehaviour
 {
     static Texture2D marker_prograde = null;
     static Texture2D marker_forward = null;
@@ -113,14 +113,51 @@ public class DMHud : MonoBehaviour
      * Most of teh calculations are done in the draw pass
      * because i want to make sure the camera is up to date */
     Vector3 speed          = Vector3.zero;
-    Quaternion orientation = Quaternion.identity;
+    Quaternion qvessel    = Quaternion.identity;
     Vector3 up             = Util.z;
     Quaternion qhorizon    = Quaternion.identity;
     bool    data_valid     = false;
+    //bool    active         = true;
+
+    static Toolbar.IButton toolbarButton;
+
+    void Awake()
+    {
+        toolbarButton = Toolbar.ToolbarManager.Instance.add("KerbalFlightIndicators", "damichelshud");
+        toolbarButton.TexturePath = "KerbalFlightIndicators/toolbarbutton";
+        toolbarButton.ToolTip = "KerbalFlightIndicators On/Off Switch";
+        toolbarButton.Visibility = new Toolbar.GameScenesVisibility(GameScenes.FLIGHT);
+        toolbarButton.Visible = true;
+        toolbarButton.Enabled = true;
+        toolbarButton.OnClick += (e) =>
+        {
+            enabled = !enabled;
+        };
+    }
+
+    public void SaveSettings()
+    {
+        ConfigNode settings = new ConfigNode();
+        settings.name = "SETTINGS";
+        settings.AddValue("active", enabled);
+        settings.Save(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
+    }
+
+    public void LoadSettings()
+    {
+        ConfigNode settings = new ConfigNode();
+        settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + @"\settings.cfg".Replace('/', '\\'));
+
+        if (settings != null)
+        {
+            if (settings.HasValue("active")) enabled = bool.Parse(settings.GetValue("active"));
+        }
+    }
 
 
 	void Start()
-	{
+    {
+        LoadSettings();
 		RenderingManager.AddToPostDrawQueue(0, new Callback(OnDraw));
 
         if (marker_prograde == null)
@@ -155,6 +192,12 @@ public class DMHud : MonoBehaviour
             marker_dbg.Apply();
         }
 	}
+
+
+    public void OnDestroy()
+    {
+        SaveSettings();
+    }
 
 
     /*  from Steam Gauges */
@@ -221,19 +264,23 @@ public class DMHud : MonoBehaviour
     void Update()
     {   
         data_valid = false;
+        if (!enabled) return;
+
         Vessel vessel = FlightGlobals.ActiveVessel;
         if (vessel == null) return;
         /* collect data on the current vessel */
         speed = GetSpeedVector();
         if (vessel.ReferenceTransform != null)
         {
-            orientation = vessel.ReferenceTransform.rotation;
+            qvessel = vessel.ReferenceTransform.rotation;
         }
         else
         {
-            orientation = vessel.transform.rotation;
+            qvessel = vessel.transform.rotation;
         }
         up = vessel.upAxis;
+        Quaternion qfix = Quaternion.Euler(new Vector3(-90f, 0f, 0f));
+        qvessel = qvessel * qfix;
 
         /* qhorizon is a frame where the y axis is parallel to vessel.upAxis and the other
          * axes are perpendicular to that. This tangent plane represents the horizon where
@@ -257,14 +304,14 @@ public class DMHud : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.O))
         {
             FlightCamera cam = GetCamera();
-            StringBuilder sb = new StringBuilder(1024);
+            StringBuilder sb = new StringBuilder(64);
             sb.AppendLine("--------- Active Vessels -> Up ----------");
             DMDebug.PrintTransform(vessel.transform, 0, sb);
             //DMDebug.PrintTransformHierarchyUp(FlightGlobals.ActiveVessel.transform, 0, sb);
             //sb.AppendLine("--------- Reference Transform -> Up ----------");
             //DMDebug.PrintTransformHierarchyUp(FlightGlobals.ActiveVessel.ReferenceTransform, 0, sb);
-            //sb.AppendLine("--------- Camera -> Up ----------");
-            //DMDebug.PrintTransformHierarchyUp(cam.transform, 0, sb);
+            sb.AppendLine("--------- Camera -> Up ----------");
+            DMDebug.PrintTransform(cam.transform, 0, sb);
             sb.AppendLine("---------- upAxis Frame-------------");
             Matrix4x4  m = Matrix4x4.TRS(new Vector3(), qhorizon, Vector3.one);
             sb.AppendLine("m = \n"+m.ToString("F3"));
@@ -278,6 +325,7 @@ public class DMHud : MonoBehaviour
             sb.AppendLine("rel. gimbal = " + ball.relativeGymbal.eulerAngles.ToString("F3"));
             sb.AppendLine("upAxis = " + vessel.upAxis.ToString());
             sb.AppendLine("world CoM = " + vessel.findWorldCenterOfMass().ToString("F3"));
+            sb.AppendLine("heading = " + (qvessel * Util.z).ToString("F3"));
             print(sb.ToString());
         }
 #endif
@@ -310,29 +358,23 @@ public class DMHud : MonoBehaviour
 #endif
 
 	protected void OnDraw()
-	{      
+	{
+        if (!data_valid || !enabled) return;
+        
         FlightCamera cam = GetCamera();
-        if (cam == null || data_valid == false) return;
+        if (cam == null) return;
 
-        Quaternion qfix     = Quaternion.Euler(new Vector3(90f, 0f, 0f)); 
+
         Quaternion qcam     = cam.transform.rotation;
         /* qvessel points the z axis forward, i.e. when you look at your vessels from behind 
          * or from IVA, your camera z axis which is the direction you are looking to and
-         * the z-axis of the qvessel frame are parallel */
-        Quaternion qvessel  = orientation * qfix;       
+         * the z-axis of the qvessel frame are parallel */    
         Quaternion qroll = qhorizon.Inverse() * qvessel;
         float roll = qroll.eulerAngles.z;
                 
         Quaternion qcamroll = qhorizon.Inverse() * qcam;
         qcamroll = qhorizon.Inverse() * qcam;
         float camroll = qcamroll.eulerAngles.z;
-
-        /* I don't do relative_roll = (qvessel.Inverse() * qcam).eulerAngles.z on purpose. 
-         * It would make things dependend on the camera so that for some orientations the
-         * vessel roll relative to the horizon line as shown by the screen indicators
-         * would net represent their true orientations, i.e. showing parallel lines although
-         * actual roll is non-zero. */
-        float relative_roll = camroll + roll + 180.0f;
 
 #if false
         Vector3 heading = qvessel * Util.z;
@@ -349,6 +391,16 @@ public class DMHud : MonoBehaviour
         Vector3 hproj = heading_in_cam_frame - Vector3.Project(heading_in_cam_frame, up_in_cam_frame);
         /* here we have it on the screen */
         Vector3 horizon_marker_screen_position = Util.CameraToScreen(cam.mainCamera, hproj);
+
+#if DEBUG
+        if (Input.GetKeyDown(KeyCode.O))
+        {
+            StringBuilder sb = new StringBuilder(8);
+            sb.AppendLine("roll = " + roll);
+            sb.AppendLine("camroll = " + camroll);
+            print(sb.ToString());
+        }
+#endif
 
         Color tmpColor = GUI.color;
         GUI.color = new Color(0f, 1f, 0f);
@@ -367,6 +419,13 @@ public class DMHud : MonoBehaviour
             Vector3 screen_pos = Util.CameraToScreen(cam.mainCamera, speed_in_cam_frame);
             if (CheckScreenPosition(cam.mainCamera, screen_pos))
             {
+                /* I don't do relative_roll = (qvessel.Inverse() * qcam).eulerAngles.z on purpose. 
+                 * It would make things dependend on the camera so that for some orientations the
+                 * vessel roll relative to the horizon line as shown by the screen indicators
+                 * would net represent their true orientations, i.e. showing parallel lines although
+                 * actual roll is non-zero. */
+                float relative_roll = camroll - Math.Sign(speed_in_cam_frame.z) * roll;
+
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
                 GUIExt.DrawTextureCentered(screen_pos, speed_in_cam_frame.z > 0 ? marker_prograde : marker_retrograde);
                 GUI.matrix = Matrix4x4.identity;
@@ -377,6 +436,8 @@ public class DMHud : MonoBehaviour
             Vector3 screen_pos = Util.CameraToScreen(cam.mainCamera, heading_in_cam_frame);
             if (CheckScreenPosition(cam.mainCamera, screen_pos))
             {
+                float relative_roll = camroll - Math.Sign(heading_in_cam_frame.z) * roll;
+
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
                 GUIExt.DrawTextureCentered(screen_pos, heading_in_cam_frame.z > 0 ? marker_forward : marker_backward);
                 GUI.matrix = Matrix4x4.identity;
@@ -387,6 +448,6 @@ public class DMHud : MonoBehaviour
             }
         }
         GUI.color = tmpColor;
-        //GUI.depth = tmpDepth;
+        GUI.depth = tmpDepth;
 	}
 }
