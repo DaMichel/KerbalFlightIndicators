@@ -333,7 +333,14 @@ public class DMHud : MonoBehaviour
          * would net represent their true orientations, i.e. showing parallel lines although
          * actual roll is non-zero. */
         float relative_roll = camroll + roll + 180.0f;
-        
+
+#if false
+        Vector3 heading = qvessel * Util.z;
+        Vector3 dh = heading + 0.001f * (qvessel * Util.x);
+        Vector3 dx = Util.CameraToScreen(cam.mainCamera, cam.transform.InverseTransformDirection(dh)) - Util.CameraToScreen(cam.mainCamera, cam.transform.InverseTransformDirection(heading));
+        float relative_roll = Util.PolarAngle(dx) * Mathf.Rad2Deg;
+#endif
+
         Vector3 heading              = qvessel * Util.z;
         Vector3 up_in_cam_frame      = cam.transform.InverseTransformDirection(up);
         Vector3 speed_in_cam_frame   = cam.transform.InverseTransformDirection(speed);
