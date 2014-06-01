@@ -57,6 +57,23 @@ public static class Util
         tex.LoadImage(data);
         return tex;
     }
+
+    public static Color ColorFromString(String s)
+    {
+        Color result = new Color();
+        var strvalues = s.Split(',');
+        for (int i = 0; i < strvalues.Length; ++i)
+            result[i] = float.Parse(strvalues[i].Trim(), System.Globalization.CultureInfo.InvariantCulture);
+        return result;
+    }
+
+    public static String ColorToString(Color c)
+    {
+        String[] s = new String[4];
+        for (int i = 0; i < 4; ++i) 
+            s[i] = c[i].ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return String.Join(",", s);
+    }
 }
 
 
@@ -117,7 +134,9 @@ public class KerbalFlightIndicators : MonoBehaviour
     Vector3 up             = Util.z;
     Quaternion qhorizon    = Quaternion.identity;
     bool    data_valid     = false;
-    //bool    active         = true;
+    Color horizonColor     = Color.green;
+    Color progradeColor    = Color.green;
+    Color attitudeColor    = Color.green;
 
     static Toolbar.IButton toolbarButton;
 
@@ -127,7 +146,7 @@ public class KerbalFlightIndicators : MonoBehaviour
         toolbarButton.TexturePath = "KerbalFlightIndicators/toolbarbutton";
         toolbarButton.ToolTip = "KerbalFlightIndicators On/Off Switch";
         toolbarButton.Visibility = new Toolbar.GameScenesVisibility(GameScenes.FLIGHT);
-        toolbarButton.Visible = true;
+        //toolbarButton.Visible = true;
         toolbarButton.Enabled = true;
         toolbarButton.OnClick += (e) =>
         {
@@ -140,6 +159,9 @@ public class KerbalFlightIndicators : MonoBehaviour
         ConfigNode settings = new ConfigNode();
         settings.name = "SETTINGS";
         settings.AddValue("active", enabled);
+        settings.AddValue("horizonColor", Util.ColorToString(horizonColor));
+        settings.AddValue("progradeColor", Util.ColorToString(progradeColor));
+        settings.AddValue("attitudeColor", Util.ColorToString(attitudeColor));
         settings.Save(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
     }
 
@@ -147,10 +169,17 @@ public class KerbalFlightIndicators : MonoBehaviour
     {
         ConfigNode settings = new ConfigNode();
         settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + @"\settings.cfg".Replace('/', '\\'));
-
         if (settings != null)
         {
             if (settings.HasValue("active")) enabled = bool.Parse(settings.GetValue("active"));
+            if (settings.HasValue("horizonColor")) horizonColor = Util.ColorFromString(settings.GetValue("horizonColor"));
+            if (settings.HasValue("progradeColor")) progradeColor = Util.ColorFromString(settings.GetValue("progradeColor"));
+            if (settings.HasValue("attitudeColor")) attitudeColor = Util.ColorFromString(settings.GetValue("attitudeColor"));
+#if false
+            Debug.Log("DMHUD parsed horizonColor = " + horizonColor + " Read " + settings.GetValue("horizonColor"));
+            Debug.Log("DMHUD parsed progradeColor = " + progradeColor + " Read " + settings.GetValue("progradeColor"));
+            Debug.Log("DMHUD parsed attitudeColor = " + attitudeColor + " Read " + settings.GetValue("attitudeColor"));
+#endif
         }
     }
 
@@ -403,12 +432,12 @@ public class KerbalFlightIndicators : MonoBehaviour
 #endif
 
         Color tmpColor = GUI.color;
-        GUI.color = new Color(0f, 1f, 0f);
         int tmpDepth = GUI.depth;
         GUI.depth = 10;
 
         if (CheckScreenPosition(cam.mainCamera, horizon_marker_screen_position))
         {
+            GUI.color = horizonColor;
             GUIUtility.RotateAroundPivot(camroll, horizon_marker_screen_position);
             GUIExt.DrawTextureCentered(horizon_marker_screen_position, marker_dbg, 256f, 1f);
             GUI.matrix = Matrix4x4.identity;
@@ -426,6 +455,7 @@ public class KerbalFlightIndicators : MonoBehaviour
                  * actual roll is non-zero. */
                 float relative_roll = camroll - Math.Sign(speed_in_cam_frame.z) * roll;
 
+                GUI.color = progradeColor;
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
                 GUIExt.DrawTextureCentered(screen_pos, speed_in_cam_frame.z > 0 ? marker_prograde : marker_retrograde);
                 GUI.matrix = Matrix4x4.identity;
@@ -437,7 +467,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             if (CheckScreenPosition(cam.mainCamera, screen_pos))
             {
                 float relative_roll = camroll - Math.Sign(heading_in_cam_frame.z) * roll;
-
+                GUI.color = attitudeColor;
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
                 GUIExt.DrawTextureCentered(screen_pos, heading_in_cam_frame.z > 0 ? marker_forward : marker_backward);
                 GUI.matrix = Matrix4x4.identity;
