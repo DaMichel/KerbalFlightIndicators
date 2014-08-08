@@ -55,6 +55,8 @@ public static class Util
         Byte[] data = KSP.IO.File.ReadAllBytes<KerbalFlightIndicators>(filename);
         Texture2D tex = new Texture2D(width, height);
         tex.LoadImage(data);
+        tex.anisoLevel = 0;
+        tex.filterMode = FilterMode.Bilinear;
         return tex;
     }
 
@@ -122,7 +124,8 @@ public class KerbalFlightIndicators : MonoBehaviour
     static Texture2D marker_horizon = null;
     static Texture2D marker_retrograde = null;
     static Texture2D marker_backward = null;
-    static Texture2D marker_dbg    = null;
+    //static Texture2D marker_dbg    = null;
+    static Texture2D marker_rollguide = null;
 
     const  float param_speed_draw_threshold = 1.0e-1f;
 
@@ -214,12 +217,18 @@ public class KerbalFlightIndicators : MonoBehaviour
             marker_horizon = Util.LoadTexture("horizon.png", 64, 4);
         }
 
-        if (marker_dbg == null)
+        if (marker_rollguide == null)
         {
-            marker_dbg = new Texture2D(1, 1);
-            marker_dbg.SetPixel(1, 1, Color.white);
-            marker_dbg.Apply();
+            marker_rollguide = Util.LoadTexture("rollguide.png", 256, 2);
         }
+
+        //if (marker_dbg == null)
+        //{
+        //    marker_dbg = new Texture2D(1, 2);
+        //    marker_dbg.SetPixel(1, 1, Color.white);
+        //    marker_dbg.SetPixel(1, 2, Color.black);
+        //    marker_dbg.Apply();
+        //}
 	}
 
 
@@ -439,7 +448,7 @@ public class KerbalFlightIndicators : MonoBehaviour
         {
             GUI.color = horizonColor;
             GUIUtility.RotateAroundPivot(camroll, horizon_marker_screen_position);
-            GUIExt.DrawTextureCentered(horizon_marker_screen_position, marker_dbg, 256f, 1f);
+            GUIExt.DrawTextureCentered(horizon_marker_screen_position, marker_horizon, 256f, 2f);
             GUI.matrix = Matrix4x4.identity;
         }
 
@@ -473,7 +482,7 @@ public class KerbalFlightIndicators : MonoBehaviour
                 GUI.matrix = Matrix4x4.identity;
 
                 GUIUtility.RotateAroundPivot(camroll, screen_pos);
-                GUIExt.DrawTextureCentered(screen_pos, marker_horizon);
+                GUIExt.DrawTextureCentered(screen_pos, marker_rollguide);
                 GUI.matrix = Matrix4x4.identity;
             }
         }
