@@ -2,7 +2,8 @@
 using UnityEngine;
 using System.Text;
 
-
+namespace KerbalFlightIndicators
+{
 
 public static class GUIExt
 {
@@ -17,6 +18,14 @@ public static class GUIExt
     public static void DrawTextureCentered(Vector3 position, Texture2D tex)
     {
         DrawTextureCentered(position, tex, tex.width, tex.height);
+    }
+
+    public static void DrawTextureCentered(Vector3 position, Texture2D tex, float width, float height, Rect texCoords)
+    {
+        GUI.DrawTextureWithTexCoords(new Rect(position.x - width * 0.5f,
+                                              position.y - height * 0.5f,
+                                              width, height),
+                                     tex, texCoords);
     }
 }
 
@@ -76,6 +85,24 @@ public static class Util
             s[i] = c[i].ToString(System.Globalization.CultureInfo.InvariantCulture);
         return String.Join(",", s);
     }
+
+
+    public static Rect[] ComputeTexCoords(int tex_width, int tex_height, RectOffset[] atlas)
+    {
+        Rect[] result = new Rect[atlas.Length];
+        float sx = 1f/tex_width;
+        float sy = 1f/tex_height;
+        for (int i=0; i<atlas.Length; ++i)
+        {
+            result[i] = new Rect(
+                atlas[i].left * sx,
+                1f - (atlas[i].bottom  * sy),
+                (atlas[i].right-atlas[i].left) * sx,
+                (atlas[i].bottom-atlas[i].top) * sy
+            );
+        }
+        return result;
+    }
 }
 
 
@@ -119,13 +146,25 @@ public static class DMDebug
 [KSPAddon(KSPAddon.Startup.Flight, false)]
 public class KerbalFlightIndicators : MonoBehaviour
 {
-    static Texture2D marker_prograde = null;
-    static Texture2D marker_forward = null;
-    static Texture2D marker_horizon = null;
-    static Texture2D marker_retrograde = null;
-    static Texture2D marker_backward = null;
-    //static Texture2D marker_dbg    = null;
-    static Texture2D marker_rollguide = null;
+    private static Texture2D marker_atlas = null;
+    private static RectOffset[] atlas_px = {
+        new RectOffset(0, 256, 0, 32), // horizon
+        new RectOffset(  0,  32, 32, 64), // heading
+        new RectOffset( 32,  64, 32, 64), // prograde
+        new RectOffset( 64,  96, 32, 64), // retrograde
+        new RectOffset( 96, 128, 32, 64), // reverse heading
+        new RectOffset(128, 192, 32, 64), // wings level guide
+    };
+    private static Rect[] atlas_uv = null;
+    public enum AtlasItem 
+    {
+        Horizon = 0,
+        Heading,
+        Prograde,
+        Retrograde,
+        Reverse,
+        LevelGuide
+    };
 
     const  float param_speed_draw_threshold = 1.0e-1f;
 
@@ -178,11 +217,11 @@ public class KerbalFlightIndicators : MonoBehaviour
             if (settings.HasValue("horizonColor")) horizonColor = Util.ColorFromString(settings.GetValue("horizonColor"));
             if (settings.HasValue("progradeColor")) progradeColor = Util.ColorFromString(settings.GetValue("progradeColor"));
             if (settings.HasValue("attitudeColor")) attitudeColor = Util.ColorFromString(settings.GetValue("attitudeColor"));
-#if false
+            #if false
             Debug.Log("DMHUD parsed horizonColor = " + horizonColor + " Read " + settings.GetValue("horizonColor"));
             Debug.Log("DMHUD parsed progradeColor = " + progradeColor + " Read " + settings.GetValue("progradeColor"));
             Debug.Log("DMHUD parsed attitudeColor = " + attitudeColor + " Read " + settings.GetValue("attitudeColor"));
-#endif
+            #endif
         }
     }
 
@@ -190,36 +229,13 @@ public class KerbalFlightIndicators : MonoBehaviour
 	void Start()
     {
         LoadSettings();
-		RenderingManager.AddToPostDrawQueue(0, new Callback(OnDraw));
+        
+        RenderingManager.AddToPostDrawQueue(0, new Callback(OnDraw));
 
-        if (marker_prograde == null)
+        if (marker_atlas == null) // initialize static members
         {
-            marker_prograde = Util.LoadTexture("prograde.png",  32, 32);
-        }
-
-        if (marker_retrograde == null)
-        {
-            marker_retrograde = Util.LoadTexture("retrograde.png", 32, 32);
-        }
-
-        if (marker_forward == null)
-        {
-            marker_forward = Util.LoadTexture("heading.png", 32, 32);
-        }
-
-        if (marker_backward == null)
-        {
-            marker_backward = Util.LoadTexture("retroheading.png", 32, 32);
-        }
-
-        if (marker_horizon == null)
-        {
-            marker_horizon = Util.LoadTexture("horizon.png", 64, 4);
-        }
-
-        if (marker_rollguide == null)
-        {
-            marker_rollguide = Util.LoadTexture("rollguide.png", 256, 2);
+            marker_atlas = Util.LoadTexture("atlas.png",  256, 64);
+            atlas_uv = Util.ComputeTexCoords(256, 64, atlas_px);
         }
 
         //if (marker_dbg == null)
@@ -235,6 +251,8 @@ public class KerbalFlightIndicators : MonoBehaviour
     public void OnDestroy()
     {
         SaveSettings();
+        // well we probably need this to not create a memory leak or so ...
+        RenderingManager.RemoveFromPostDrawQueue(0, new Callback(OnDraw));
     }
 
 
@@ -395,6 +413,14 @@ public class KerbalFlightIndicators : MonoBehaviour
     }
 #endif
 
+    protected void DrawMarker(AtlasItem id, Vector3 position)
+    {
+        float w = atlas_px[(int)id].right - atlas_px[(int)id].left;
+        float h = atlas_px[(int)id].bottom - atlas_px[(int)id].top;
+        GUIExt.DrawTextureCentered(position, marker_atlas, w, h, atlas_uv[(int)id]);
+    }
+
+
 	protected void OnDraw()
 	{
         if (!data_valid || !enabled) return;
@@ -448,7 +474,7 @@ public class KerbalFlightIndicators : MonoBehaviour
         {
             GUI.color = horizonColor;
             GUIUtility.RotateAroundPivot(camroll, horizon_marker_screen_position);
-            GUIExt.DrawTextureCentered(horizon_marker_screen_position, marker_horizon, 256f, 2f);
+            DrawMarker(AtlasItem.Horizon, horizon_marker_screen_position);
             GUI.matrix = Matrix4x4.identity;
         }
 
@@ -466,7 +492,7 @@ public class KerbalFlightIndicators : MonoBehaviour
 
                 GUI.color = progradeColor;
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
-                GUIExt.DrawTextureCentered(screen_pos, speed_in_cam_frame.z > 0 ? marker_prograde : marker_retrograde);
+               DrawMarker(speed_in_cam_frame.z > 0 ?AtlasItem.Prograde :AtlasItem.Retrograde, screen_pos);
                 GUI.matrix = Matrix4x4.identity;
             }
         }       
@@ -478,15 +504,17 @@ public class KerbalFlightIndicators : MonoBehaviour
                 float relative_roll = camroll - Math.Sign(heading_in_cam_frame.z) * roll;
                 GUI.color = attitudeColor;
                 GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
-                GUIExt.DrawTextureCentered(screen_pos, heading_in_cam_frame.z > 0 ? marker_forward : marker_backward);
+                DrawMarker(heading_in_cam_frame.z > 0 ? AtlasItem.Heading : AtlasItem.Reverse, screen_pos);
                 GUI.matrix = Matrix4x4.identity;
 
                 GUIUtility.RotateAroundPivot(camroll, screen_pos);
-                GUIExt.DrawTextureCentered(screen_pos, marker_rollguide);
+                DrawMarker(AtlasItem.LevelGuide, screen_pos);
                 GUI.matrix = Matrix4x4.identity;
             }
         }
         GUI.color = tmpColor;
         GUI.depth = tmpDepth;
 	}
+}
+
 }
