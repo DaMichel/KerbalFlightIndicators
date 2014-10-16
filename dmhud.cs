@@ -37,6 +37,9 @@ public static class Util
     public static Vector3 y = Vector3.up;
     public static Vector3 z = Vector3.forward;
 
+    public static float RAD2DEGf = 180f/Mathf.PI;
+    public static double RAD2DEG = 180.0/Math.PI;
+
     // angle need to rotate the x-axis so that it is parallel with (x,y); in Radians
     public static float PolarAngle(Vector2 v)
     {
@@ -103,6 +106,14 @@ public static class Util
         }
         return result;
     }
+
+    //public static Vector3d EulerAngles(QuaternionD q)
+    //{
+    //    double yaw   = Math.Atan2(2.0*(q.w*q.z + q.x*q.y), 1.0 - 2.0*(q.y*q.y + q.z*q.z));
+    //    double pitch = Math.Asin (2.0*(q.w*q.y - q.z*q.x));
+    //    double roll  = Math.Atan2(2.0*(q.w*q.x + q.y*q.z), 1.0 - 2.0*(q.x*q.x + q.y*q.y));
+    //    return new Vector3d(RAD2DEG*pitch, RAD2DEG*yaw, RAD2DEG*roll);
+    //}
 }
 
 
@@ -148,12 +159,13 @@ public class KerbalFlightIndicators : MonoBehaviour
 {
     private static Texture2D marker_atlas = null;
     private static RectOffset[] atlas_px = {
-        new RectOffset(0, 256, 0, 32), // horizon
+        new RectOffset(0, 256, 6, 10), // horizon
         new RectOffset(  0,  32, 32, 64), // heading
         new RectOffset( 32,  64, 32, 64), // prograde
         new RectOffset( 64,  96, 32, 64), // retrograde
         new RectOffset( 96, 128, 32, 64), // reverse heading
         new RectOffset(128, 192, 32, 64), // wings level guide
+        new RectOffset(208-2, 256-2, 16-2, 64-2), // vertical
     };
     private static Rect[] atlas_uv = null;
     public enum AtlasItem 
@@ -163,7 +175,8 @@ public class KerbalFlightIndicators : MonoBehaviour
         Prograde,
         Retrograde,
         Reverse,
-        LevelGuide
+        LevelGuide,
+        Vertical
     };
 
     const  float param_speed_draw_threshold = 1.0e-1f;
@@ -171,14 +184,19 @@ public class KerbalFlightIndicators : MonoBehaviour
     /* cached information about the vessel and the world.
      * Most of teh calculations are done in the draw pass
      * because i want to make sure the camera is up to date */
+    Quaternion qfix = Quaternion.Euler(new Vector3(-90f, 0f, 0f));
     Vector3 speed          = Vector3.zero;
-    Quaternion qvessel    = Quaternion.identity;
+    Vector3 normalized_speed = Vector3.zero;
+    bool is_moving         = true;
+    Quaternion qvessel     = Quaternion.identity;
     Vector3 up             = Util.z;
     Quaternion qhorizon    = Quaternion.identity;
+    Quaternion qhorizoninv = Quaternion.identity;
     bool    data_valid     = false;
     Color horizonColor     = Color.green;
     Color progradeColor    = Color.green;
     Color attitudeColor    = Color.green;
+    Vector3 vessel_euler   = Vector3.zero;
 
     static Toolbar.IButton toolbarButton;
 
@@ -326,6 +344,8 @@ public class KerbalFlightIndicators : MonoBehaviour
         if (vessel == null) return;
         /* collect data on the current vessel */
         speed = GetSpeedVector();
+        normalized_speed = speed.normalized;
+        is_moving = speed.sqrMagnitude > param_speed_draw_threshold*param_speed_draw_threshold;
         if (vessel.ReferenceTransform != null)
         {
             qvessel = vessel.ReferenceTransform.rotation;
@@ -335,28 +355,35 @@ public class KerbalFlightIndicators : MonoBehaviour
             qvessel = vessel.transform.rotation;
         }
         up = vessel.upAxis;
-        Quaternion qfix = Quaternion.Euler(new Vector3(-90f, 0f, 0f));
+        // make z be the forward pointing axis
         qvessel = qvessel * qfix;
-
-        /* qhorizon is a frame where the y axis is parallel to vessel.upAxis and the other
-         * axes are perpendicular to that. This tangent plane represents the horizon where
-         * the pitch of the craft is 0.*/
+        
         CelestialBody body = FlightGlobals.currentMainBody;
         if (body == null) return;
 
-        Vector3 z = Vector3.Cross(body.angularVelocity, up);
-        if (z.sqrMagnitude < 1.0e-9)
-            z = Vector3.Cross(Util.y, up);
-        if (z.sqrMagnitude < 1.0e-9)
-            z = Vector3.Cross(Util.x, up);
-        if (z.sqrMagnitude < 1.0e-9)
-            return; // fail
-        z.Normalize();
-        qhorizon = Quaternion.LookRotation(z, up);
+        //Vector3 z = Vector3.Cross(body.angularVelocity, up);
+        //if (z.sqrMagnitude < 1.0e-9)
+        //    z = Vector3.Cross(Util.y, up);
+        //if (z.sqrMagnitude < 1.0e-9)
+        //    z = Vector3.Cross(Util.x, up);
+        //if (z.sqrMagnitude < 1.0e-9)
+        //    return; // fail
+        //z.Normalize();
+        //qhorizon = Quaternion.LookRotation(z, up);
+
+        NavBall ball =  ball = FlightUIController.fetch.GetComponentInChildren<NavBall>();
+        Quaternion vesselRot = Quaternion.Inverse(ball.relativeGymbal);
+        vessel_euler = vesselRot.eulerAngles;
+        /* qhorizon describes the orientation of the planetary surface underneath the vessel */
+        // ball = horizon -> vessel
+        // vessel = vessel -> world
+        // => (vessel * ball) = horizon -> world
+        qhorizon = qvessel * ball.relativeGymbal;
+        Quaternion qhorizoninv = qhorizon.Inverse();
 
         data_valid = true;
 
-#if DEBUG
+#if false
         if (Input.GetKeyDown(KeyCode.O))
         {
             FlightCamera cam = GetCamera();
@@ -430,70 +457,107 @@ public class KerbalFlightIndicators : MonoBehaviour
 
 
         Quaternion qcam     = cam.transform.rotation;
-        /* qvessel points the z axis forward, i.e. when you look at your vessels from behind 
-         * or from IVA, your camera z axis which is the direction you are looking to and
+        /* When you look at your vessels from behind 
+         * or from IVA, your camera z axis, which is the direction you are looking to, and
          * the z-axis of the qvessel frame are parallel */    
-        Quaternion qroll = qhorizon.Inverse() * qvessel;
-        float roll = qroll.eulerAngles.z;
                 
-        Quaternion qcamroll = qhorizon.Inverse() * qcam;
-        qcamroll = qhorizon.Inverse() * qcam;
-        float camroll = qcamroll.eulerAngles.z;
+        Quaternion qcaminv = qcam.Inverse();
+        Quaternion horizon_to_cam = qcaminv * qhorizon;
 
-#if false
-        Vector3 heading = qvessel * Util.z;
-        Vector3 dh = heading + 0.001f * (qvessel * Util.x);
-        Vector3 dx = Util.CameraToScreen(cam.mainCamera, cam.transform.InverseTransformDirection(dh)) - Util.CameraToScreen(cam.mainCamera, cam.transform.InverseTransformDirection(heading));
-        float relative_roll = Util.PolarAngle(dx) * Mathf.Rad2Deg;
-#endif
+        float camroll = -Util.RAD2DEGf*Util.PolarAngle(horizon_to_cam * Util.y)+90f;
+
+        Quaternion qroll = qcaminv * qvessel;
+        float roll = -Util.RAD2DEGf*Util.PolarAngle(qroll * Util.y)+90f;
 
         Vector3 heading              = qvessel * Util.z;
         Vector3 up_in_cam_frame      = cam.transform.InverseTransformDirection(up);
-        Vector3 speed_in_cam_frame   = cam.transform.InverseTransformDirection(speed);
+        Vector3 speed_in_cam_frame   = cam.transform.InverseTransformDirection(normalized_speed);
         Vector3 heading_in_cam_frame = cam.transform.InverseTransformDirection(heading);
-        /* hproj is the projection of the heading onto the trangent plane of upAxis */
-        Vector3 hproj = heading_in_cam_frame - Vector3.Project(heading_in_cam_frame, up_in_cam_frame);
-        /* here we have it on the screen */
-        Vector3 horizon_marker_screen_position = Util.CameraToScreen(cam.mainCamera, hproj);
+
+        float vertical_roll = -Util.RAD2DEGf*Util.PolarAngle(horizon_to_cam * Util.z) + 90f;
+
+        // Pretend we were at zero roll and get the alignment of the resulting lateral axis in screen coords
+        // relative_gimbal^-1 gives euler angles of the craft in the planetary surface frame
+        // so, for roll == 0 we have:
+        // qhorizon * relative_gimbal^-1 = qvessel * relative_gimbal * relative_gimbal^-1 = qvessel 
+        // meaning that what is computed here will be identical to the vessel orientation if roll=0
+        Quaternion qroll_level = horizon_to_cam * Quaternion.Euler(new Vector3(vessel_euler.x, vessel_euler.y, 0));
+        float level_roll = -Util.RAD2DEGf*Util.PolarAngle(qroll_level * Util.y)+90f;
+
+        /* This doesn't work very well when pointing straight up/down due to gimbal lock issues in the Quaternion->euler angles conversion! */
+        //Vector3 tmp = qhorizoninv * normalized_speed;
+        //Vector3 speed_hpb = Quaternion.LookRotation(tmp, Util.y).eulerAngles;
+        //Quaternion qroll_prograde = qcaminv * qhorizon * Quaternion.Euler(new Vector3(speed_hpb.x, speed_hpb.y, vessel_euler.z));
+        //float prograde_roll = -Util.RAD2DEGf*Util.PolarAngle(qroll_prograde * Util.y)+90f;
+
+        float heading_dot_up = Vector3.Dot(up_in_cam_frame, heading_in_cam_frame);
+        float speed_dot_up   = Vector3.Dot(up_in_cam_frame, speed_in_cam_frame);
+        
+        float blend_vertical = Mathf.Max(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
+        float blend_horizon = Mathf.Min(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
+        float blend_level_guide = Mathf.Abs(heading_dot_up);
+        const float BLEND_HORIZON_C0 = 0.259f;
+        const float BLEND_HORIZON_C1 = 0.342f;
+        const float BLEND_VERT_C0 = 0.94f;
+        const float BLEND_VERT_C1 = 0.966f;
+        const float BLEND_LEVEL_GUIDE_C0 = 0.984f;
+        const float BLEND_LEVEL_GUIDE_C1 = 0.996f;
 
 #if DEBUG
         if (Input.GetKeyDown(KeyCode.O))
         {
             StringBuilder sb = new StringBuilder(8);
-            sb.AppendLine("roll = " + roll);
-            sb.AppendLine("camroll = " + camroll);
-            print(sb.ToString());
+            sb.AppendLine("       qvessel = " + (qhorizoninv*qvessel).ToString("F3"));
+            sb.AppendLine("       qlevel  = " + (qhorizoninv*qroll_level).ToString("F3"));
+            sb.AppendLine("       qhorizon = " + qhorizon.ToString("F3"));
+            sb.AppendLine("       euler    = " + vessel_euler.ToString("F3"));
+            sb.AppendLine("       heading  = " + (qhorizoninv * heading).ToString("F2"));
+            sb.AppendLine("       horizon_roll_z = " + (qcaminv * qhorizon * Util.z).ToString("F2"));
+            Debug.Log(sb.ToString());
         }
 #endif
 
         Color tmpColor = GUI.color;
-        int tmpDepth = GUI.depth;
-        GUI.depth = 10;
 
-        if (CheckScreenPosition(cam.mainCamera, horizon_marker_screen_position))
+        if (blend_horizon < BLEND_HORIZON_C1)
         {
-            GUI.color = horizonColor;
-            GUIUtility.RotateAroundPivot(camroll, horizon_marker_screen_position);
-            DrawMarker(AtlasItem.Horizon, horizon_marker_screen_position);
-            GUI.matrix = Matrix4x4.identity;
+            /* hproj is the projection of the heading onto the trangent plane of upAxis */
+            Vector3 hproj = heading_in_cam_frame - Vector3.Project(heading_in_cam_frame, up_in_cam_frame);
+            Vector3 horizon_marker_screen_position = Util.CameraToScreen(cam.mainCamera, hproj);
+            if (CheckScreenPosition(cam.mainCamera, horizon_marker_screen_position)) // possible optimization: i think this check can be made before screen space projection
+            {
+                Color c = horizonColor;
+                c.a *= blend_horizon > BLEND_HORIZON_C0 ? ((blend_horizon-BLEND_HORIZON_C1)/(BLEND_HORIZON_C0-BLEND_HORIZON_C1)) : 1f;
+                GUI.color = c;
+
+                GUIUtility.RotateAroundPivot(camroll, horizon_marker_screen_position); // big optimization opportunity here: construct matrix directly from position and direction vector!
+                DrawMarker(AtlasItem.Horizon, horizon_marker_screen_position);
+                GUI.matrix = Matrix4x4.identity;
+            }
         }
 
-        if (speed.magnitude > param_speed_draw_threshold)
+        if (blend_vertical > BLEND_VERT_C0)
+        {
+            Vector3 vertical_screen_position = Util.CameraToScreen(cam.mainCamera, up_in_cam_frame);
+            if (CheckScreenPosition(cam.mainCamera, vertical_screen_position))
+            {
+                Color c = horizonColor;
+                c.a *= blend_vertical < BLEND_VERT_C1 ? ((blend_vertical-BLEND_VERT_C0)/(BLEND_VERT_C1-BLEND_VERT_C0)) : 1f;
+                GUI.color = c;
+                
+                GUIUtility.RotateAroundPivot(vertical_roll, vertical_screen_position);
+                DrawMarker(AtlasItem.Vertical, vertical_screen_position);
+                GUI.matrix = Matrix4x4.identity;
+            }
+        }
+
+        if (is_moving)
         {
             Vector3 screen_pos = Util.CameraToScreen(cam.mainCamera, speed_in_cam_frame);
             if (CheckScreenPosition(cam.mainCamera, screen_pos))
             {
-                /* I don't do relative_roll = (qvessel.Inverse() * qcam).eulerAngles.z on purpose. 
-                 * It would make things dependend on the camera so that for some orientations the
-                 * vessel roll relative to the horizon line as shown by the screen indicators
-                 * would net represent their true orientations, i.e. showing parallel lines although
-                 * actual roll is non-zero. */
-                float relative_roll = camroll - Math.Sign(speed_in_cam_frame.z) * roll;
-
                 GUI.color = progradeColor;
-                GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
-               DrawMarker(speed_in_cam_frame.z > 0 ?AtlasItem.Prograde :AtlasItem.Retrograde, screen_pos);
-                GUI.matrix = Matrix4x4.identity;
+                DrawMarker(speed_in_cam_frame.z > 0 ? AtlasItem.Prograde :AtlasItem.Retrograde, screen_pos);
             }
         }       
 
@@ -501,19 +565,24 @@ public class KerbalFlightIndicators : MonoBehaviour
             Vector3 screen_pos = Util.CameraToScreen(cam.mainCamera, heading_in_cam_frame);
             if (CheckScreenPosition(cam.mainCamera, screen_pos))
             {
-                float relative_roll = camroll - Math.Sign(heading_in_cam_frame.z) * roll;
                 GUI.color = attitudeColor;
-                GUIUtility.RotateAroundPivot(relative_roll, screen_pos);
+                GUIUtility.RotateAroundPivot(roll, screen_pos);
                 DrawMarker(heading_in_cam_frame.z > 0 ? AtlasItem.Heading : AtlasItem.Reverse, screen_pos);
                 GUI.matrix = Matrix4x4.identity;
 
-                GUIUtility.RotateAroundPivot(camroll, screen_pos);
-                DrawMarker(AtlasItem.LevelGuide, screen_pos);
-                GUI.matrix = Matrix4x4.identity;
+                if (blend_level_guide < BLEND_LEVEL_GUIDE_C1)
+                {
+                    Color c = attitudeColor;
+                    c.a *= blend_level_guide > BLEND_LEVEL_GUIDE_C0 ? ((blend_level_guide-BLEND_LEVEL_GUIDE_C1)/(BLEND_LEVEL_GUIDE_C0-BLEND_LEVEL_GUIDE_C1)) : 1f;
+                    GUI.color = c;
+
+                    GUIUtility.RotateAroundPivot(level_roll, screen_pos);
+                    DrawMarker(AtlasItem.LevelGuide, screen_pos);
+                    GUI.matrix = Matrix4x4.identity;
+                }
             }
         }
         GUI.color = tmpColor;
-        GUI.depth = tmpDepth;
 	}
 }
 
