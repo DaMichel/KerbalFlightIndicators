@@ -213,13 +213,13 @@ These are KSPs layers
 
 public enum Markers
 {
-    Horizon = 0,
-    Heading,
+    Heading = 0,
     Prograde,
     Retrograde,
     Reverse,
     LevelGuide,
     Vertical,
+    Horizon,
     COUNT
 };
 
@@ -343,6 +343,7 @@ public class CameraScript : MonoBehaviour
         MarkerScript ms = markerScripts[(int)id];
         position.x *= -camera.aspect * camera.orthographicSize;
         position.y *= -camera.orthographicSize;
+        position.z = ms.transform.localPosition.z;
         ms.transform.localPosition = position; 
         ms.blendValue = blend_value;
         float nrm = Mathf.Sqrt(up_vector.x * up_vector.x + up_vector.y * up_vector.y);
@@ -548,13 +549,13 @@ public class KerbalFlightIndicators : MonoBehaviour
 {
     private static Texture2D marker_atlas = null;
     private static RectOffset[] atlas_px = {
-        new RectOffset(0, 256, 6, 10), // horizon
         new RectOffset(  0,  32, 32, 64), // heading
         new RectOffset( 32,  64, 32, 64), // prograde
         new RectOffset( 64,  96, 32, 64), // retrograde
         new RectOffset( 96, 128, 32, 64), // reverse heading
         new RectOffset(128, 192, 32, 64), // wings level guide
         new RectOffset(208-2, 256-2, 16-2, 64-2), // vertical
+        new RectOffset(0, 256, 6, 10), // horizon
     };
     private static Rect[] atlas_uv = null;
 
@@ -662,10 +663,8 @@ public class KerbalFlightIndicators : MonoBehaviour
             MeshRenderer mr = o.GetComponent<MeshRenderer>();
             mr.material = mat;
             o.layer = 31;
-            o.transform.localPosition = new Vector3(0.0f, 0.0f, 1.0f);
-            o.transform.localRotation = Quaternion.identity;
-            o.transform.localScale    = new Vector3((px.right - px.left), (px.bottom - px.top), 1);
 
+            float zlevel = 1.0f;
             MarkerScript ms = markerScripts[i] = o.AddComponent<MarkerScript>();
             if (i == (int)Markers.Heading || i == (int)Markers.LevelGuide || i == (int)Markers.Reverse)
             {
@@ -674,10 +673,12 @@ public class KerbalFlightIndicators : MonoBehaviour
             else if (i == (int)Markers.Prograde || i == (int)Markers.Retrograde)
             {
                 ms.baseColor = progradeColor;
+                zlevel = 1.1f;
             }
             else
             {
                 ms.baseColor = horizonColor;
+                zlevel = 1.2f;
             }
             if (i == (int)Markers.Horizon)
             {
@@ -693,6 +694,9 @@ public class KerbalFlightIndicators : MonoBehaviour
             }
 
             o.transform.parent = markerParentObject.transform;
+            o.transform.localPosition = new Vector3(0.0f, 0.0f, zlevel);
+            o.transform.localRotation = Quaternion.identity;
+            o.transform.localScale    = new Vector3((px.right - px.left), (px.bottom - px.top), 1.0f);
 
             markerEnabling[i] = true;
         }
