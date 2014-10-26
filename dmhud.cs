@@ -562,12 +562,15 @@ public class KerbalFlightIndicators : MonoBehaviour
     Color horizonColor     = Color.green;
     Color progradeColor    = Color.green;
     Color attitudeColor    = Color.green;
+    bool  drawInFrontOfCockpit = true;
+
     MarkerScript[] markerScripts = null;
     CameraScript cameraScript  = null;
     GameObject markerParentObject = null;
     bool[] markerEnabling = null;
 
     static Toolbar.IButton toolbarButton;
+
 
     void Awake()
     {
@@ -582,6 +585,7 @@ public class KerbalFlightIndicators : MonoBehaviour
         };
     }
 
+
     public void SaveSettings()
     {
         ConfigNode settings = new ConfigNode();
@@ -590,8 +594,10 @@ public class KerbalFlightIndicators : MonoBehaviour
         settings.AddValue("horizonColor", Util.ColorToString(horizonColor));
         settings.AddValue("progradeColor", Util.ColorToString(progradeColor));
         settings.AddValue("attitudeColor", Util.ColorToString(attitudeColor));
+        settings.AddValue("drawInFrontOfCockpit", drawInFrontOfCockpit.ToString());
         settings.Save(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
     }
+
 
     public void LoadSettings()
     {
@@ -603,8 +609,30 @@ public class KerbalFlightIndicators : MonoBehaviour
             if (settings.HasValue("horizonColor")) horizonColor = Util.ColorFromString(settings.GetValue("horizonColor"));
             if (settings.HasValue("progradeColor")) progradeColor = Util.ColorFromString(settings.GetValue("progradeColor"));
             if (settings.HasValue("attitudeColor")) attitudeColor = Util.ColorFromString(settings.GetValue("attitudeColor"));
+            if (settings.HasValue("drawInFrontOfCockpit")) drawInFrontOfCockpit = bool.Parse(settings.GetValue("drawInFrontOfCockpit"));
         }
     }
+
+
+	void Start()
+    {
+        LoadSettings();
+        if (marker_atlas == null) // initialize static members
+        {
+            marker_atlas = Util.LoadTexture("atlas.png",  256, 64);
+            atlas_uv = Util.ComputeTexCoords(256, 64, atlas_px);
+        }
+        CreateGameObjects();
+	}
+
+
+    public void OnDestroy()
+    {
+        SaveSettings();
+        // well we probably need this to not create a memory leak or so ...
+        DestroyGameObjects();
+    }
+
 
     private void SetEnabled(bool enabled_)
     {
@@ -634,7 +662,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             cam.orthographicSize = viewportSizeY;
             cam.aspect           = viewportSizeX/viewportSizeY;
             cam.cullingMask  = (1<<31);
-            cam.depth = 1;
+            cam.depth = drawInFrontOfCockpit ? 10 : 1;
             cam.farClipPlane = 2.0f;
             cam.nearClipPlane = 0.5f;
             o.transform.localPosition = new Vector3(0.5f, 0.5f, 0.0f);
@@ -704,6 +732,7 @@ public class KerbalFlightIndicators : MonoBehaviour
         SetEnabled(enabled);
     }
 
+
     void DestroyGameObjects()
     {
         GameObject.Destroy(cameraScript.gameObject); 
@@ -711,24 +740,6 @@ public class KerbalFlightIndicators : MonoBehaviour
         cameraScript = null;
         markerScripts = null;
         markerParentObject = null;
-    }
-
-	void Start()
-    {
-        LoadSettings();
-        if (marker_atlas == null) // initialize static members
-        {
-            marker_atlas = Util.LoadTexture("atlas.png",  256, 64);
-            atlas_uv = Util.ComputeTexCoords(256, 64, atlas_px);
-        }
-        CreateGameObjects();
-	}
-
-    public void OnDestroy()
-    {
-        SaveSettings();
-        // well we probably need this to not create a memory leak or so ...
-        DestroyGameObjects();
     }
 }
 
