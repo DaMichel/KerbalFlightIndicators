@@ -39,6 +39,11 @@ public static class DMDebug
         if (transf.parent)
             PrintTransformHierarchyUp(transf.parent, depth+1, sb);
     }
+
+    // from http://stackoverflow.com/questions/1838963/easy-and-fast-way-to-convert-an-int-to-binary
+    public static string ToBin(int value, int len) {
+       return (len > 1 ? ToBin(value >> 1, len - 1) : null) + "01"[value & 1];
+    }
 }
 #endif
 
@@ -190,7 +195,28 @@ These are KSPs layers
  mask 29 = 
  mask 30 = 
  */
+/*
+ToBin
+*/
+/*
+        StringBuilder sb = new StringBuilder();
+        foreach (var cam in Camera.allCameras)
+        {
+            sb.AppendFormat("{0}, cullmask = {1} = {2}\n", cam.name,DMDebug.ToBin(cam.cullingMask, 32), cam.cullingMask.ToString());
+        }
+        Debug.Log(sb.ToString());
 
+Camera ScaledSpace,                  cullmask = 00100000100001000000011000000000 = 545523200
+Camera 01,                           cullmask = 00000000000010001000000000000011 = 557059
+Camera 00,                           cullmask = 00000000000010001000000000000011 = 557059
+KerbalFlightIndicators-CustomCamera, cullmask = 10000000000000000000000000000000 = -2147483648 // FAIL!
+FXCamera,                            cullmask = 00000000000000000000000000000001 = 1
+Camera,                              cullmask = 00000000000000000000000000000010 = 2
+UICamera,                            cullmask = 00000010000000000000000000000000 = 33554432
+velocity camera,                     cullmask = 00000000000000000000000000000001 = 1
+UI camera,                           cullmask = 00000000000000000001000000000000 = 4096
+UI mask camera,                      cullmask = 00000000000000000010000000000000 = 8192
+*/
 
 #if false
     Quaternion BuildUpFrame(FlightCamera cam, Vector3 up)
@@ -445,17 +471,19 @@ public class CameraScript : MonoBehaviour
         float blend_horizon = Mathf.Min(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
         float blend_level_guide = Mathf.Abs(heading_dot_up);
 
-        Vector3 horizon_marker_screen_position = Util.PerspectiveProjection(cam, hproj);
-        if (CheckPosition(cam, horizon_marker_screen_position)) // possible optimization: i think this check can be made before screen space projection
         {
-            UpdateMarker(Markers.Horizon, horizon_marker_screen_position, upvector_horizon, blend_horizon);
+            Vector3 screen_position = Util.PerspectiveProjection(cam, hproj);
+            if (CheckPosition(cam, screen_position)) // possible optimization: i think this check can be made before screen space projection
+            {
+                UpdateMarker(Markers.Horizon, screen_position, upvector_horizon, blend_horizon);
+            }
         }
 
         {
             Vector3 screen_position = Util.PerspectiveProjection(cam, up_in_cam_frame);
             if (CheckPosition(cam, screen_position))
             {
-                UpdateMarker(Markers.Vertical, screen_position, upvector_vertical, blend_horizon);
+                UpdateMarker(Markers.Vertical, screen_position, upvector_vertical, blend_vertical);
             }
         }
 
@@ -661,7 +689,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             cam.clearFlags = CameraClearFlags.Nothing;
             cam.orthographicSize = viewportSizeY;
             cam.aspect           = viewportSizeX/viewportSizeY;
-            cam.cullingMask  = (1<<31);
+            cam.cullingMask  = (1<<30);
             cam.depth = drawInFrontOfCockpit ? 10 : 1;
             cam.farClipPlane = 2.0f;
             cam.nearClipPlane = 0.5f;
@@ -690,7 +718,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             o.name = "KerbalFlightIndicators-"+Enum.GetName(typeof(Markers), i);
             MeshRenderer mr = o.GetComponent<MeshRenderer>();
             mr.material = mat;
-            o.layer = 31;
+            o.layer = 30;
 
             float zlevel = 1.0f;
             MarkerScript ms = markerScripts[i] = o.AddComponent<MarkerScript>();
