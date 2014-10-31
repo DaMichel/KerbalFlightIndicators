@@ -159,8 +159,9 @@ public static class Util
         return result;
     }
 }
+#endregion
 
-
+#region comments
 /*
 These are KSPs layers
  mask 0 = Default
@@ -1196,9 +1197,8 @@ UI mask camera                          , cullmask = 00000000000000000
             sb.AppendFormat("{0}, cullmask = {1} = {2}\n", cam.name,DMDebug.ToBin(cam.cullingMask, 32), cam.cullingMask.ToString());
         }
         Debug.Log(sb.ToString());
-*/
-
-#if false
+ 
+something else. Not needed any more.
     Quaternion BuildUpFrame(FlightCamera cam, Vector3 up)
     {
         Vector3 z;
@@ -1213,7 +1213,7 @@ UI mask camera                          , cullmask = 00000000000000000
         }
         return Quaternion.LookRotation(z, up);
     }
-#endif
+*/
 #endregion
 
 
@@ -1580,6 +1580,9 @@ public class KerbalFlightIndicators : MonoBehaviour
 
     static Toolbar.IButton toolbarButton;
 
+    bool enableThroughGuiEvent = true;
+    bool enableThroughToolbar = true;
+
 
     void Awake()
     {
@@ -1590,8 +1593,26 @@ public class KerbalFlightIndicators : MonoBehaviour
         toolbarButton.Enabled = true;
         toolbarButton.OnClick += (e) =>
         {
-            SetEnabled(!enabled);
+            enableThroughToolbar = !enableThroughToolbar;
+            UpdateEnabling();
         };
+
+        GameEvents.onHideUI.Add(OnHideUI);
+        GameEvents.onShowUI.Add(OnShowUI);
+    }
+
+
+    void OnHideUI()
+    {
+        enableThroughGuiEvent = false;
+        UpdateEnabling();
+    }
+
+
+    void OnShowUI()
+    {
+        enableThroughGuiEvent = true;
+        UpdateEnabling();
     }
 
 
@@ -1599,7 +1620,7 @@ public class KerbalFlightIndicators : MonoBehaviour
     {
         ConfigNode settings = new ConfigNode();
         settings.name = "SETTINGS";
-        settings.AddValue("active", enabled);
+        settings.AddValue("active", enableThroughToolbar);
         settings.AddValue("horizonColor", Util.ColorToString(horizonColor));
         settings.AddValue("progradeColor", Util.ColorToString(progradeColor));
         settings.AddValue("attitudeColor", Util.ColorToString(attitudeColor));
@@ -1614,7 +1635,7 @@ public class KerbalFlightIndicators : MonoBehaviour
         settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + @"\settings.cfg".Replace('/', '\\'));
         if (settings != null)
         {
-            if (settings.HasValue("active")) enabled = bool.Parse(settings.GetValue("active"));
+            if (settings.HasValue("active")) enableThroughToolbar = bool.Parse(settings.GetValue("active"));
             if (settings.HasValue("horizonColor")) horizonColor = Util.ColorFromString(settings.GetValue("horizonColor"));
             if (settings.HasValue("progradeColor")) progradeColor = Util.ColorFromString(settings.GetValue("progradeColor"));
             if (settings.HasValue("attitudeColor")) attitudeColor = Util.ColorFromString(settings.GetValue("attitudeColor"));
@@ -1638,14 +1659,19 @@ public class KerbalFlightIndicators : MonoBehaviour
 
     public void OnDestroy()
     {
+        // unregister, or else errors occur
+        GameEvents.onHideUI.Remove(OnHideUI);
+        GameEvents.onShowUI.Remove(OnShowUI);
+
         SaveSettings();
         // well we probably need this to not create a memory leak or so ...
         DestroyGameObjects();
     }
 
 
-    private void SetEnabled(bool enabled_)
+    private void UpdateEnabling()
     {
+        bool enabled_ = enableThroughGuiEvent && enableThroughToolbar;
         enabled = enabled_;
         if (cameraScript) cameraScript.gameObject.SetActive(enabled_);
         if (markerParentObject) markerParentObject.SetActive(enabled_);
@@ -1756,7 +1782,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             markerEnabling[i] = true;
         }
         }
-        SetEnabled(enabled);
+        UpdateEnabling();
     }
 
 
