@@ -1216,7 +1216,7 @@ something else. Not needed any more.
 */
 #endregion
 
-
+#region Marker Implementation
 public enum Markers
 {
     Heading = 0,
@@ -1550,7 +1550,7 @@ public class CameraScript : MonoBehaviour
         return false;
     }
 }
-
+#endregion
 
 [KSPAddon(KSPAddon.Startup.Flight, false)]
 public class KerbalFlightIndicators : MonoBehaviour
@@ -1578,24 +1578,27 @@ public class KerbalFlightIndicators : MonoBehaviour
     GameObject markerParentObject = null;
     bool[] markerEnabling = null;
 
-    static Toolbar.IButton toolbarButton;
+    private IButton toolbarButton = null;
 
     bool enableThroughGuiEvent = true;
     bool enableThroughToolbar = true;
 
 
     void Awake()
-    {
-        toolbarButton = Toolbar.ToolbarManager.Instance.add("KerbalFlightIndicators", "damichelshud");
-        toolbarButton.TexturePath = "KerbalFlightIndicators/toolbarbutton";
-        toolbarButton.ToolTip = "KerbalFlightIndicators On/Off Switch";
-        toolbarButton.Visibility = new Toolbar.GameScenesVisibility(GameScenes.FLIGHT);
-        toolbarButton.Enabled = true;
-        toolbarButton.OnClick += (e) =>
+    {   
+        if (ToolbarManager.ToolbarAvailable)
         {
-            enableThroughToolbar = !enableThroughToolbar;
-            UpdateEnabling();
-        };
+            toolbarButton = ToolbarManager.Instance.add("KerbalFlightIndicators", "damichelshud");
+            toolbarButton.TexturePath = "KerbalFlightIndicators/toolbarbutton";
+            toolbarButton.ToolTip = "KerbalFlightIndicators On/Off Switch";
+            toolbarButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
+            toolbarButton.Enabled = true;
+            toolbarButton.OnClick += (e) =>
+            {
+                enableThroughToolbar = !enableThroughToolbar;
+                UpdateEnabling();
+            };
+        }
 
         GameEvents.onHideUI.Add(OnHideUI);
         GameEvents.onShowUI.Add(OnShowUI);
@@ -1666,6 +1669,9 @@ public class KerbalFlightIndicators : MonoBehaviour
         SaveSettings();
         // well we probably need this to not create a memory leak or so ...
         DestroyGameObjects();
+
+        if (toolbarButton != null)
+            toolbarButton.Destroy();
     }
 
 
@@ -1788,8 +1794,10 @@ public class KerbalFlightIndicators : MonoBehaviour
 
     void DestroyGameObjects()
     {
-        GameObject.Destroy(cameraScript.gameObject); 
-        GameObject.Destroy(markerParentObject); // destroys children, too
+        if (cameraScript != null && cameraScript.gameObject != null) // could it be that they are deleted somewhere outside this plugin? I suppose because i got a NRE here ...
+            GameObject.Destroy(cameraScript.gameObject); 
+        if (markerParentObject != null)
+            GameObject.Destroy(markerParentObject); // destroys children, too
         cameraScript = null;
         markerScripts = null;
         markerParentObject = null;
