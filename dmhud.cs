@@ -1635,7 +1635,7 @@ public class KerbalFlightIndicators : MonoBehaviour
     public void LoadSettings()
     {
         ConfigNode settings = new ConfigNode();
-        settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + @"/settings.cfg");
+        settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
         if (settings != null)
         {
             if (settings.HasValue("active")) enableThroughToolbar = bool.Parse(settings.GetValue("active"));
