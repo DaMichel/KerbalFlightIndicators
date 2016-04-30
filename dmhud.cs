@@ -1,6 +1,7 @@
 ﻿using System;
 using UnityEngine;
 using System.Text;
+//        using ConfigNode = KSP.IO.PluginConfigNode;
 
 namespace KerbalFlightIndicators
 {
@@ -43,6 +44,14 @@ public static class DMDebug
     // from http://stackoverflow.com/questions/1838963/easy-and-fast-way-to-convert-an-int-to-binary
     public static string ToBin(int value, int len) {
        return (len > 1 ? ToBin(value >> 1, len - 1) : null) + "01"[value & 1];
+    }
+
+    public static String DebugRepr(Quaternion q)
+    {
+        Vector3 x = q * Util.x; // apply rotation to vectors
+        Vector3 y = q * Util.y;
+        Vector3 z = q * Util.z;
+        return String.Format("[{0}, {1}, {2}]", x.ToString("F3"), y.ToString("F3"), z.ToString("F3"));
     }
 }
 #endif
@@ -1237,6 +1246,7 @@ public class MarkerScript : MonoBehaviour
     private float blendC1; // invisible
     private float blendCM;
     private bool  doBlending = false;
+    private Renderer renderer = null;
     public  float blendValue;
     
     public void SetBlendConstants(float blendC0_, float blendC1_)
@@ -1250,6 +1260,7 @@ public class MarkerScript : MonoBehaviour
 
     public void Start()
     {
+        renderer = GetComponent<Renderer>();
         renderer.material.color = baseColor;
     }
 
@@ -1272,20 +1283,64 @@ public class CameraScript : MonoBehaviour
     /* cached information about the vessel and the world.
      * Most of teh calculations are done in the draw pass
      * because i want to make sure the camera is up to date */
-    Quaternion qfix = Quaternion.Euler(new Vector3(-90f, 0f, 0f));
+
+    
+    //Quaternion qfix = Quaternion.Euler(new Vector3(-90f, 0f, 0f));
+    //Quaternion qfix2 = Quaternion.Euler(new Vector3(0f, -90f, 0f));
     Quaternion qvessel     = Quaternion.identity;
-    Vector3 vessel_euler   = Vector3.zero;
-    Vector3 up             = Util.z;
+    Vector3 ship_up        = Util.z;
     Vector3 speed          = Vector3.zero;
-    NavBall ball           = null;
-    Quaternion qhorizon    = Quaternion.identity;
-    Camera cam             = null;
+    Vector3 east           = Vector3.zero;
+    Vector3 north          = Vector3.zero;
+    Camera cam                           = null; // through which the player sees the world
+    Camera my_indicator_cam              = null; // that is used to render our indicator objects.
 
     public bool[] markerEnabling = null;
     public MarkerScript[] markerScripts = null;
 
+
+    public void Start()
+    {
+        my_indicator_cam = GetComponent<Camera>();
+    }
+
     void OnPreCull()  // this is only called if the MonoBehaviour component is attached to a GameObject which also has a Camera!
     {   
+
+#if true
+        if (Input.GetKeyDown(KeyCode.O))
+        {
+            var g = FlightGlobals.fetch;
+            StringBuilder sb = new StringBuilder(8);
+            sb.AppendLine("ship_upAxis             = "+((Vector3)FlightGlobals.ship_upAxis).ToString("F3"));
+            sb.AppendLine("upAxis                  = "+((Vector3)FlightGlobals.upAxis).ToString("F3"));
+            sb.AppendLine("getUpAxis                  = "+((Vector3)FlightGlobals.getUpAxis()).ToString("F3"));
+            sb.AppendLine("ship_srfVelocity        = "+((Vector3)FlightGlobals.ship_srfVelocity).ToString("F3"));
+            sb.AppendLine("GetSpeedVector()        = "+GetSpeedVector().ToString("F3"));
+            sb.AppendLine("ship_rotation           = "+DMDebug.DebugRepr(FlightGlobals.ship_rotation));
+            sb.AppendLine("ship_orientation        = "+DMDebug.DebugRepr(FlightGlobals.ship_orientation));
+            sb.AppendLine("ship_orientation_offset = "+DMDebug.DebugRepr(FlightGlobals.ship_orientation_offset));
+            Debug.Log(sb.ToString());
+        }
+#endif
+
+#if false
+        if (Input.GetKeyDown(KeyCode.O))
+        {
+            StringBuilder sb = new StringBuilder(8);
+            sb.AppendLine("DMHUD:");
+            sb.AppendLine("       up_in_cam_frame = " + up_in_cam_frame.ToString("F3"));
+            sb.AppendLine("       speed_in_cam_frame = " + speed_in_cam_frame.ToString("F3"));
+            sb.AppendLine("       heading_in_cam_frame = " + heading_in_cam_frame.ToString("F3"));
+            sb.AppendLine("       qvessel = " + (qhorizoninv*qvessel).ToString("F3"));
+            sb.AppendLine("       qhorizon = " + qhorizon.ToString("F3"));
+            sb.AppendLine("       euler    = " + vessel_euler.ToString("F3"));
+            sb.AppendLine("       heading  = " + (qhorizoninv * heading).ToString("F2"));
+            sb.AppendLine("       horizon_roll_z = " + (qcaminv * qhorizon * Util.z).ToString("F2"));
+            Debug.Log(sb.ToString());
+        }
+#endif
+
         for (int i=0; i<(int)Markers.COUNT; ++i)
             markerEnabling[i] = false;
 
@@ -1303,41 +1358,24 @@ public class CameraScript : MonoBehaviour
 
     bool UpdateInternalData()
     {
+        if (!FlightGlobals.ready) return false;
+
         Vessel vessel = FlightGlobals.ActiveVessel;
         if (vessel == null) return false;
-        CelestialBody body = FlightGlobals.currentMainBody;
-        if (body == null) return false;
+        //CelestialBody body = FlightGlobals.currentMainBody;
+        //if (body == null) return false;
+        
         cam = FlightGlobals.fetch.mainCameraRef;
         if (cam == null) return false;
-        if (ball == null)
-            ball = FlightUIController.fetch.GetComponentInChildren<NavBall>();
-        if (ball == null)
-            return false;
+        
         if (!IsInAdmissibleCameraMode())
             return false;
 
         speed = GetSpeedVector();
-        if (vessel.ReferenceTransform != null)
-        {
-            qvessel = vessel.ReferenceTransform.rotation;
-        }
-        else
-        {
-            qvessel = vessel.transform.rotation;
-        }
-        qvessel = qvessel * qfix;  // make z be the forward pointing axis
-
-        up = vessel.upAxis;
-
-        qhorizon = qvessel * ball.relativeGymbal;
-        /* qhorizon describes the orientation of the planetary surface underneath the vessel. 
-         * Here is how to get the planetary to world frame transform:
-                ball = horizon -> vessel
-                vessel = vessel -> world
-                    => (vessel * ball) = horizon -> world
-         */
-        Quaternion vesselRot = Quaternion.Inverse(ball.relativeGymbal);
-        vessel_euler = vesselRot.eulerAngles;
+        qvessel  = FlightGlobals.ship_rotation;
+        ship_up  = FlightGlobals.ship_upAxis;
+        east = vessel.east;
+        north = vessel.north;
         return true;
     }
 
@@ -1347,8 +1385,8 @@ public class CameraScript : MonoBehaviour
         // alpha = 0 is transparent
         // position is in camera space
         MarkerScript ms = markerScripts[(int)id];
-        position.x *= -camera.aspect * camera.orthographicSize;
-        position.y *= -camera.orthographicSize;
+        position.x *= -my_indicator_cam.aspect * my_indicator_cam.orthographicSize;
+        position.y *= -my_indicator_cam.orthographicSize;
         position.z = ms.transform.localPosition.z;
         ms.transform.localPosition = position; 
         ms.blendValue = blend_value;
@@ -1376,103 +1414,49 @@ public class CameraScript : MonoBehaviour
     {
         Vector3 normalized_speed = speed.normalized;
         bool is_moving = speed.sqrMagnitude > speed_draw_threshold*speed_draw_threshold;
-        
-        Quaternion qhorizoninv = qhorizon.Inverse();
 
         Quaternion qcam     = cam.transform.rotation;
-        /* When you look at your vessels from behind 
-         * or from IVA, your camera z axis, which is the direction you are looking to, and
-         * the z-axis of the qvessel frame are parallel */    
-                
-        Quaternion qcaminv = qcam.Inverse();
-        Quaternion horizon_to_cam = qcaminv * qhorizon;
+        Quaternion qcaminv = Quaternion.Inverse(qcam);
+        Quaternion vessel_to_cam  = qcaminv * qvessel;
 
-        Vector3 upvector_horizon = horizon_to_cam * Util.y;
+        Vector3 cf_vertical             = qcaminv * ship_up;
+        Vector3 cf_up                   = - (vessel_to_cam * Util.z);
+        Vector3 cf_heading              = vessel_to_cam * Util.y;
+        Vector3 cf_velocity_direction   = qcaminv * normalized_speed;
+        Vector3 cf_hproj = cf_heading - Vector3.Project(cf_heading, cf_vertical); // the projection of the heading onto the trangent plane of upAxis
+        Vector3 cf_north = qcaminv * north;
 
-        Quaternion qroll = qcaminv * qvessel;
-        Vector3 upvector_roll = qroll * Util.y;
+        float heading_dot_up = Vector3.Dot(cf_vertical, cf_heading);
+        float speed_dot_up   = Vector3.Dot(cf_vertical, cf_velocity_direction);
+         
+        Vector3 cf_horizon_up_vector = cf_vertical;
 
-        Vector3 heading              = qvessel * Util.z;
-        Vector3 up_in_cam_frame      = cam.transform.InverseTransformDirection(up);
-        Vector3 speed_in_cam_frame   = cam.transform.InverseTransformDirection(normalized_speed);
-        Vector3 heading_in_cam_frame = cam.transform.InverseTransformDirection(heading);
-        Vector3 hproj = heading_in_cam_frame - Vector3.Project(heading_in_cam_frame, up_in_cam_frame); // the projection of the heading onto the trangent plane of upAxis
-
-#if false && DEBUG
-        {
-            StringBuilder sb = new StringBuilder(8);
-            sb.AppendLine("up      = "+up.ToString("F3"));
-            sb.AppendLine("heading = "+heading.ToString("F3"));
-            sb.AppendLine("up_in_cam_frame = "+up_in_cam_frame.ToString("F3"));
-            sb.AppendLine("heading_in_cam_frame = "+heading_in_cam_frame.ToString("F3"));
-            sb.AppendLine("hproj = "+hproj.ToString("F3"));
-            sb.AppendLine("cam   = "+cam.transform.rotation.eulerAngles.ToString("F3"));
-            Debug.Log(sb.ToString());
-        }
-#endif
-
-#if DEBUG
-        if (Input.GetKeyDown(KeyCode.O))
-        {
-            StringBuilder sb = new StringBuilder(8);
-            sb.AppendLine("DMHUD:");
-            sb.AppendLine("       up_in_cam_frame = " + up_in_cam_frame.ToString("F3"));
-            sb.AppendLine("       speed_in_cam_frame = " + speed_in_cam_frame.ToString("F3"));
-            sb.AppendLine("       heading_in_cam_frame = " + heading_in_cam_frame.ToString("F3"));
-            sb.AppendLine("       qvessel = " + (qhorizoninv*qvessel).ToString("F3"));
-            sb.AppendLine("       qhorizon = " + qhorizon.ToString("F3"));
-            sb.AppendLine("       euler    = " + vessel_euler.ToString("F3"));
-            sb.AppendLine("       heading  = " + (qhorizoninv * heading).ToString("F2"));
-            sb.AppendLine("       horizon_roll_z = " + (qcaminv * qhorizon * Util.z).ToString("F2"));
-            Debug.Log(sb.ToString());
-        }
-#endif
-
-        Vector3 upvector_vertical = horizon_to_cam * Util.z;
-
-        // Pretend we were at zero roll and get the alignment of the resulting lateral axis in screen coords
-        // relative_gimbal^-1 gives euler angles of the craft in the planetary surface frame
-        // so, for roll == 0 we have:
-        // qhorizon * relative_gimbal^-1 = qvessel * relative_gimbal * relative_gimbal^-1 = qvessel 
-        // meaning that what is computed here will be identical to the vessel orientation if roll=0
-        Quaternion qroll_level = horizon_to_cam * Quaternion.Euler(new Vector3(vessel_euler.x, vessel_euler.y, 0));
-        Vector3 upvector_levelguide = qroll_level * Util.y;
-
-        /* This doesn't work very well when pointing straight up/down due to gimbal lock issues in the Quaternion->euler angles conversion! */
-        //Vector3 tmp = qhorizoninv * normalized_speed;
-        //Vector3 speed_hpb = Quaternion.LookRotation(tmp, Util.y).eulerAngles;
-        //Quaternion qroll_prograde = qcaminv * qhorizon * Quaternion.Euler(new Vector3(speed_hpb.x, speed_hpb.y, vessel_euler.z));
-        //float prograde_roll = -Util.RAD2DEGf*Util.PolarAngle(qroll_prograde * Util.y)+90f;
-
-        float heading_dot_up = Vector3.Dot(up_in_cam_frame, heading_in_cam_frame);
-        float speed_dot_up   = Vector3.Dot(up_in_cam_frame, speed_in_cam_frame);
-        
         float blend_vertical = Mathf.Max(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
         float blend_horizon = Mathf.Min(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
         float blend_level_guide = Mathf.Abs(heading_dot_up);
 
         {
-            Vector3 screen_position = Util.PerspectiveProjection(cam, hproj);
+            Vector3 screen_position = Util.PerspectiveProjection(cam, cf_hproj);
             if (CheckPosition(cam, screen_position)) // possible optimization: i think this check can be made before screen space projection
             {
-                UpdateMarker(Markers.Horizon, screen_position, upvector_horizon, blend_horizon);
+                UpdateMarker(Markers.Horizon, screen_position, cf_horizon_up_vector, blend_horizon);
             }
         }
 
         {
-            Vector3 screen_position = Util.PerspectiveProjection(cam, up_in_cam_frame);
+            Vector3 screen_position = Util.PerspectiveProjection(cam, cf_vertical);
             if (CheckPosition(cam, screen_position))
             {
-                UpdateMarker(Markers.Vertical, screen_position, upvector_vertical, blend_vertical);
+                UpdateMarker(Markers.Vertical, screen_position, cf_north, blend_vertical);
             }
         }
 
         if (is_moving)
         {
-            Vector3 screen_pos = Util.PerspectiveProjection(cam, speed_in_cam_frame);
+            Vector3 screen_pos = Util.PerspectiveProjection(cam, cf_velocity_direction);
             if (CheckPosition(cam, screen_pos))
             {
-                if (speed_in_cam_frame.z >= 0)
+                if (cf_velocity_direction.z >= 0)
                     UpdateMarker(Markers.Prograde, screen_pos, Util.y, 1.0f);
                 else
                     UpdateMarker(Markers.Retrograde, screen_pos, Util.y, 1.0f);
@@ -1480,14 +1464,14 @@ public class CameraScript : MonoBehaviour
         }       
 
         {
-            Vector3 screen_pos = Util.PerspectiveProjection(cam, heading_in_cam_frame);
+            Vector3 screen_pos = Util.PerspectiveProjection(cam, cf_heading);
             if (CheckPosition(cam, screen_pos))
             {
-                if (heading_in_cam_frame.z >= 0)
-                    UpdateMarker(Markers.Heading, screen_pos, upvector_roll, 1.0f);
+                if (cf_heading.z >= 0)
+                    UpdateMarker(Markers.Heading, screen_pos, cf_up, 1.0f);
                 else
-                    UpdateMarker(Markers.Reverse, screen_pos, upvector_roll, 1.0f);
-                UpdateMarker(Markers.LevelGuide, screen_pos, upvector_levelguide,  blend_level_guide);
+                    UpdateMarker(Markers.Reverse, screen_pos, cf_up, 1.0f);
+                UpdateMarker(Markers.LevelGuide, screen_pos, cf_horizon_up_vector,  blend_level_guide);
             }
         }
     }
@@ -1513,13 +1497,13 @@ public class CameraScript : MonoBehaviour
             }
         }
         Vector3 speed = Vector3.zero;
-        switch (FlightUIController.speedDisplayMode)
+        switch (FlightGlobals.speedDisplayMode)
         {
-            case FlightUIController.SpeedDisplayModes.Orbit:
-                speed = FlightGlobals.ship_obtVelocity;
+            case FlightGlobals.SpeedDisplayModes.Orbit:
+                speed = vessel.obt_velocity;
                 break;
 
-            case FlightUIController.SpeedDisplayModes.Target:
+            case FlightGlobals.SpeedDisplayModes.Target:
                 speed = tgt_velocity;
                 break;
 
@@ -1551,6 +1535,8 @@ public class CameraScript : MonoBehaviour
     }
 }
 #endregion
+
+
 
 [KSPAddon(KSPAddon.Startup.Flight, false)]
 public class KerbalFlightIndicators : MonoBehaviour
