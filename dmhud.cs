@@ -1362,9 +1362,7 @@ public class CameraScript : MonoBehaviour
 
         Vessel vessel = FlightGlobals.ActiveVessel;
         if (vessel == null) return false;
-        //CelestialBody body = FlightGlobals.currentMainBody;
-        //if (body == null) return false;
-        
+
         cam = FlightGlobals.fetch.mainCameraRef;
         if (cam == null) return false;
         
@@ -1429,7 +1427,8 @@ public class CameraScript : MonoBehaviour
         float heading_dot_up = Vector3.Dot(cf_vertical, cf_heading);
         float speed_dot_up   = Vector3.Dot(cf_vertical, cf_velocity_direction);
          
-        Vector3 cf_horizon_up_vector = cf_vertical;
+        Vector3 tmp = Vector3.Cross(cf_vertical, cf_heading);
+        Vector3 cf_horizon_up_vector = Vector3.Cross(cf_heading, tmp);
 
         float blend_vertical = Mathf.Max(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
         float blend_horizon = Mathf.Min(Mathf.Abs(heading_dot_up), is_moving ? Mathf.Abs(speed_dot_up) : 0f);
