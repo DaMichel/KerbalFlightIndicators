@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 using System.Text;
-//        using ConfigNode = KSP.IO.PluginConfigNode;
+
 
 namespace KerbalFlightIndicators
 {
@@ -123,11 +123,12 @@ public static class Util
         return cam.ViewportToScreenPoint(CameraToViewport(cam, v));
     }
 
-    public static Texture2D LoadTexture(String filename, int width, int height)
+    public static Texture2D LoadTexture(String filename)
     {
         Byte[] data = KSP.IO.File.ReadAllBytes<KerbalFlightIndicators>(filename);
-        Texture2D tex = new Texture2D(width, height);
-        tex.LoadImage(data);
+        // we can just create a new texture object with a blank 2x2 image. 
+        Texture2D tex = new Texture2D(2, 2);
+        tex.LoadImage(data); // Resizes the texture to hold the image data. Sets width and height attribute according to the loaded image.
         tex.anisoLevel = 0;
         tex.filterMode = FilterMode.Bilinear;
         return tex;
@@ -166,6 +167,17 @@ public static class Util
             );
         }
         return result;
+    }
+
+    public static RectOffset RectOffsetFromString(String s)
+    {
+        int left, right, bottom, top;
+        var strvalues = s.Split(',');
+        left = int.Parse(strvalues[0]);
+        right = int.Parse(strvalues[1]);
+        top = int.Parse(strvalues[2]);
+        bottom = int.Parse(strvalues[3]);
+        return new RectOffset(left, right, top, bottom);
     }
 }
 #endregion
@@ -1283,10 +1295,6 @@ public class CameraScript : MonoBehaviour
     /* cached information about the vessel and the world.
      * Most of teh calculations are done in the draw pass
      * because i want to make sure the camera is up to date */
-
-    
-    //Quaternion qfix = Quaternion.Euler(new Vector3(-90f, 0f, 0f));
-    //Quaternion qfix2 = Quaternion.Euler(new Vector3(0f, -90f, 0f));
     Quaternion qvessel     = Quaternion.identity;
     Vector3 ship_up        = Util.z;
     Vector3 speed          = Vector3.zero;
@@ -1294,6 +1302,8 @@ public class CameraScript : MonoBehaviour
     Vector3 north          = Vector3.zero;
     Camera cam                           = null; // through which the player sees the world
     Camera my_indicator_cam              = null; // that is used to render our indicator objects.
+    Vector3 last_speed      = Vector3.zero;  // for filtering
+    Quaternion last_qvessel = Quaternion.identity; // for filtering
 
     public bool[] markerEnabling = null;
     public MarkerScript[] markerScripts = null;
@@ -1307,7 +1317,7 @@ public class CameraScript : MonoBehaviour
     void OnPreCull()  // this is only called if the MonoBehaviour component is attached to a GameObject which also has a Camera!
     {   
 
-#if true
+#if false
         if (Input.GetKeyDown(KeyCode.O))
         {
             var g = FlightGlobals.fetch;
@@ -1344,9 +1354,9 @@ public class CameraScript : MonoBehaviour
         for (int i=0; i<(int)Markers.COUNT; ++i)
             markerEnabling[i] = false;
 
-        if (UpdateInternalData()) 
+        if (CheckAndPrepare()) 
         {
-            UpdateAllMarkers(cam);
+            UpdateAllMarkers();
         }
 
         for (int i=0; i<(int)Markers.COUNT; ++i)
@@ -1356,12 +1366,15 @@ public class CameraScript : MonoBehaviour
     }
 
 
-    bool UpdateInternalData()
+    bool CheckAndPrepare()
     {
         if (!FlightGlobals.ready) return false;
 
         Vessel vessel = FlightGlobals.ActiveVessel;
         if (vessel == null) return false;
+
+        if (vessel.state == Vessel.State.DEAD)
+            return false;
 
         cam = FlightGlobals.fetch.mainCameraRef;
         if (cam == null) return false;
@@ -1369,8 +1382,14 @@ public class CameraScript : MonoBehaviour
         if (!IsInAdmissibleCameraMode())
             return false;
 
-        speed = GetSpeedVector();
-        qvessel  = FlightGlobals.ship_rotation;
+        // simple running average filtering
+        Vector3 current_speed = GetSpeedVector();
+        Quaternion current_qvessel  = FlightGlobals.ship_rotation;
+        speed = 0.5f*(current_speed + last_speed);
+        qvessel = Quaternion.Lerp(current_qvessel, last_qvessel, 0.5f);
+        last_speed   = current_speed;
+        last_qvessel = current_qvessel;
+
         ship_up  = FlightGlobals.ship_upAxis;
         east = vessel.east;
         north = vessel.north;
@@ -1408,7 +1427,7 @@ public class CameraScript : MonoBehaviour
     }
 
 
-    void UpdateAllMarkers(Camera cam)
+    void UpdateAllMarkers()
     {
         Vector3 normalized_speed = speed.normalized;
         bool is_moving = speed.sqrMagnitude > speed_draw_threshold*speed_draw_threshold;
@@ -1438,7 +1457,7 @@ public class CameraScript : MonoBehaviour
             Vector3 screen_position = Util.PerspectiveProjection(cam, cf_hproj);
             if (CheckPosition(cam, screen_position)) // possible optimization: i think this check can be made before screen space projection
             {
-                UpdateMarker(Markers.Horizon, screen_position, cf_horizon_up_vector, blend_horizon);
+                UpdateMarker(Markers.Horizon, screen_position, cf_vertical, blend_horizon);
             }
         }
 
@@ -1540,18 +1559,20 @@ public class CameraScript : MonoBehaviour
 [KSPAddon(KSPAddon.Startup.Flight, false)]
 public class KerbalFlightIndicators : MonoBehaviour
 {
-    private const int KFI_LAYER = 30;  // I claim this layer just for me!
-    private static Texture2D marker_atlas = null;
-    private static RectOffset[] atlas_px = {
-        new RectOffset(  0,  32, 32, 64), // heading
-        new RectOffset( 32,  64, 32, 64), // prograde
-        new RectOffset( 64,  96, 32, 64), // retrograde
-        new RectOffset( 96, 128, 32, 64), // reverse heading
-        new RectOffset(128, 192, 32, 64), // wings level guide
-        new RectOffset(208-2, 256-2, 16-2, 64-2), // vertical
-        new RectOffset(0, 256, 6, 10), // horizon
+    const int KFI_LAYER = 30;  // I claim this layer just for me!
+    Texture2D marker_atlas = null;
+    RectOffset[] atlas_px = {
+        new RectOffset(  0*2,  32*2, 32*2, 64*2), // heading
+        new RectOffset( 32*2,  64*2, 32*2, 64*2), // prograde
+        new RectOffset( 64*2,  96*2, 32*2, 64*2), // retrograde
+        new RectOffset( 96*2, 128*2, 32*2, 64*2), // reverse heading
+        new RectOffset(128*2, 192*2, 32*2, 64*2), // wings level guide
+        new RectOffset((208-2)*2, (256-2)*2, (16-2)*2, (64-2)*2), // vertical
+        new RectOffset(0*2, 256*2, 6*2, 10*2), // horizon
     };
-    private static Rect[] atlas_uv = null;
+    Rect[] atlas_uv = null;
+    float displayScaleFactor = 1.0f;
+    String atlasTexture = "atlas.png";
 
     Color horizonColor     = Color.green;
     Color progradeColor    = Color.green;
@@ -1563,15 +1584,20 @@ public class KerbalFlightIndicators : MonoBehaviour
     GameObject markerParentObject = null;
     bool[] markerEnabling = null;
 
-    private IButton toolbarButton = null;
+    IButton toolbarButton = null;
+    KSP.UI.Screens.ApplicationLauncherButton applauncherButton = null;
 
     bool enableThroughGuiEvent = true;
     bool enableThroughToolbar = true;
+    bool useToolbar = true;
+    bool useAppLauncher = true;
 
-
+    // see http://docs.unity3d.com/ScriptReference/MonoBehaviour.Awake.html
+    // Called when the script instance is being loaded.
     void Awake()
     {   
-        if (ToolbarManager.ToolbarAvailable)
+        LoadSettings();
+        if (ToolbarManager.ToolbarAvailable && useToolbar)
         {
             toolbarButton = ToolbarManager.Instance.add("KerbalFlightIndicators", "damichelshud");
             toolbarButton.TexturePath = "KerbalFlightIndicators/toolbarbutton";
@@ -1587,6 +1613,40 @@ public class KerbalFlightIndicators : MonoBehaviour
 
         GameEvents.onHideUI.Add(OnHideUI);
         GameEvents.onShowUI.Add(OnShowUI);
+        if (useAppLauncher)
+            GameEvents.onGUIApplicationLauncherReady.Add(OnGUIAppLauncherReady);
+    }
+
+
+    // see http://docs.unity3d.com/ScriptReference/MonoBehaviour.Start.html
+    // Maybe called once, on the first frame where the script is enabled. If the script is never enabled, Start won't be called.
+    void Start()
+    {
+        marker_atlas = Util.LoadTexture(atlasTexture);
+        atlas_uv = Util.ComputeTexCoords(marker_atlas.width, marker_atlas.height, atlas_px);
+        AdjustPhysics();
+        CreateGameObjects();
+    }
+
+
+    public void OnDestroy()
+    {
+        // unregister, or else errors occur
+        GameEvents.onHideUI.Remove(OnHideUI);
+        GameEvents.onShowUI.Remove(OnShowUI);
+        GameEvents.onGUIApplicationLauncherReady.Remove(OnGUIAppLauncherReady);
+
+        SaveSettings();
+        // well we probably need this to not create a memory leak or so ...
+        DestroyGameObjects();
+
+        if (applauncherButton != null)
+        {
+            KSP.UI.Screens.ApplicationLauncher.Instance.RemoveModApplication(applauncherButton);
+            applauncherButton = null;
+        }
+        if (toolbarButton != null)
+            toolbarButton.Destroy();
     }
 
 
@@ -1604,59 +1664,73 @@ public class KerbalFlightIndicators : MonoBehaviour
     }
 
 
+    public void OnGUIAppLauncherReady()
+    {
+        if (applauncherButton == null)
+        {
+            applauncherButton = KSP.UI.Screens.ApplicationLauncher.Instance.AddModApplication(
+                OnShowUI,
+                OnHideUI,
+                null,
+                null,
+                null,
+                null,
+                KSP.UI.Screens.ApplicationLauncher.AppScenes.FLIGHT,
+                (Texture)GameDatabase.Instance.GetTexture("KerbalFlightIndicators/icon", false));
+        }
+    }
+
+
     public void SaveSettings()
     {
         ConfigNode settings = new ConfigNode();
         settings.name = "SETTINGS";
         settings.AddValue("active", enableThroughToolbar);
-        settings.AddValue("horizonColor", Util.ColorToString(horizonColor));
-        settings.AddValue("progradeColor", Util.ColorToString(progradeColor));
-        settings.AddValue("attitudeColor", Util.ColorToString(attitudeColor));
-        settings.AddValue("drawInFrontOfCockpit", drawInFrontOfCockpit.ToString());
-        settings.Save(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
+        settings.Save(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/state.cfg");
     }
 
 
     public void LoadSettings()
     {
         ConfigNode settings = new ConfigNode();
-        settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
+
+        // load mutable configuration
+        settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/state.cfg");
         if (settings != null)
         {
             if (settings.HasValue("active")) enableThroughToolbar = bool.Parse(settings.GetValue("active"));
+        }
+
+        // load configuration that won't be changed in game
+        settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/settings.cfg");
+        if (settings != null)
+        {
+            string[] markerNames =
+            {
+                "Heading",
+                "Prograde",
+                "Retrograde",
+                "Reverse",
+                "LevelGuide",
+                "Vertical",
+                "Horizon"
+            };
+            for (int i=0; i<(int)Markers.COUNT; ++i)
+            {
+                if (settings.HasValue("rect"+markerNames[i])) 
+                {
+                    atlas_px[i] = Util.RectOffsetFromString(settings.GetValue("rect"+markerNames[i]));
+                }
+            }
+            settings.TryGetValue("displayScaleFactor", ref displayScaleFactor);
+            settings.TryGetValue("atlasTexture", ref atlasTexture);
+            settings.TryGetValue("useToolbar", ref useToolbar);
+            settings.TryGetValue("useAppLauncher", ref useAppLauncher);
             if (settings.HasValue("horizonColor")) horizonColor = Util.ColorFromString(settings.GetValue("horizonColor"));
             if (settings.HasValue("progradeColor")) progradeColor = Util.ColorFromString(settings.GetValue("progradeColor"));
             if (settings.HasValue("attitudeColor")) attitudeColor = Util.ColorFromString(settings.GetValue("attitudeColor"));
             if (settings.HasValue("drawInFrontOfCockpit")) drawInFrontOfCockpit = bool.Parse(settings.GetValue("drawInFrontOfCockpit"));
         }
-    }
-
-
-    void Start()
-    {
-        LoadSettings();
-        if (marker_atlas == null) // initialize static members
-        {
-            marker_atlas = Util.LoadTexture("atlas.png",  256, 64);
-            atlas_uv = Util.ComputeTexCoords(256, 64, atlas_px);
-        }
-        AdjustPhysics();
-        CreateGameObjects();
-    }
-
-
-    public void OnDestroy()
-    {
-        // unregister, or else errors occur
-        GameEvents.onHideUI.Remove(OnHideUI);
-        GameEvents.onShowUI.Remove(OnShowUI);
-
-        SaveSettings();
-        // well we probably need this to not create a memory leak or so ...
-        DestroyGameObjects();
-
-        if (toolbarButton != null)
-            toolbarButton.Destroy();
     }
 
 
@@ -1768,7 +1842,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             o.transform.parent = markerParentObject.transform;
             o.transform.localPosition = new Vector3(0.0f, 0.0f, zlevel);
             o.transform.localRotation = Quaternion.identity;
-            o.transform.localScale    = new Vector3((px.right - px.left), (px.bottom - px.top), 1.0f);
+            o.transform.localScale    = new Vector3((px.right - px.left)*displayScaleFactor, (px.bottom - px.top)*displayScaleFactor, 1.0f);
 
             markerEnabling[i] = true;
         }
