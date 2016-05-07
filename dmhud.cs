@@ -1664,13 +1664,25 @@ public class KerbalFlightIndicators : MonoBehaviour
     }
 
 
+    void OnHideTB()
+    {
+        enableThroughToolbar = false;
+        UpdateEnabling();
+    }
+
+    void OnShowTB()
+    {
+        enableThroughToolbar = true;
+        UpdateEnabling();
+    }
+
     public void OnGUIAppLauncherReady()
     {
         if (applauncherButton == null)
         {
             applauncherButton = KSP.UI.Screens.ApplicationLauncher.Instance.AddModApplication(
-                OnShowUI,
-                OnHideUI,
+                OnShowTB,
+                OnHideTB,
                 null,
                 null,
                 null,
