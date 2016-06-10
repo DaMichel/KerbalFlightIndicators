@@ -1557,7 +1557,7 @@ public class CameraScript : MonoBehaviour
 
 
 [KSPAddon(KSPAddon.Startup.Flight, false)]
-public class KerbalFlightIndicators : MonoBehaviour
+public class KerbalFlightIndicators : DaMichelToolbarSuperWrapper.PluginWithToolbarSupport
 {
     const int KFI_LAYER = 30;  // I claim this layer just for me!
     Texture2D marker_atlas = null;
@@ -1584,37 +1584,23 @@ public class KerbalFlightIndicators : MonoBehaviour
     GameObject markerParentObject = null;
     bool[] markerEnabling = null;
 
-    IButton toolbarButton = null;
-    KSP.UI.Screens.ApplicationLauncherButton applauncherButton = null;
-
-    bool enableThroughGuiEvent = true;
-    bool enableThroughToolbar = true;
-    bool useToolbar = true;
-    bool useAppLauncher = true;
+    protected override DaMichelToolbarSuperWrapper.ToolbarInfo GetToolbarInfo()
+    {
+        return new DaMichelToolbarSuperWrapper.ToolbarInfo {
+            name = "KerbalFlightIndicators",
+            tooltip = "KerbalFlightIndicators On/Off Switch",
+            toolbarTexture = "KerbalFlightIndicators/toolbarbutton",
+            launcherTexture = "KerbalFlightIndicators/icon",
+            visibleInScenes = new GameScenes[] { GameScenes.FLIGHT }
+        };
+    }
 
     // see http://docs.unity3d.com/ScriptReference/MonoBehaviour.Awake.html
     // Called when the script instance is being loaded.
     void Awake()
     {   
         LoadSettings();
-        if (ToolbarManager.ToolbarAvailable && useToolbar)
-        {
-            toolbarButton = ToolbarManager.Instance.add("KerbalFlightIndicators", "damichelshud");
-            toolbarButton.TexturePath = "KerbalFlightIndicators/toolbarbutton";
-            toolbarButton.ToolTip = "KerbalFlightIndicators On/Off Switch";
-            toolbarButton.Visibility = new GameScenesVisibility(GameScenes.FLIGHT);
-            toolbarButton.Enabled = true;
-            toolbarButton.OnClick += (e) =>
-            {
-                enableThroughToolbar = !enableThroughToolbar;
-                UpdateEnabling();
-            };
-        }
-
-        GameEvents.onHideUI.Add(OnHideUI);
-        GameEvents.onShowUI.Add(OnShowUI);
-        if (useAppLauncher)
-            GameEvents.onGUIApplicationLauncherReady.Add(OnGUIAppLauncherReady);
+        InitializeToolbars();
     }
 
 
@@ -1631,73 +1617,17 @@ public class KerbalFlightIndicators : MonoBehaviour
 
     public void OnDestroy()
     {
-        // unregister, or else errors occur
-        GameEvents.onHideUI.Remove(OnHideUI);
-        GameEvents.onShowUI.Remove(OnShowUI);
-        GameEvents.onGUIApplicationLauncherReady.Remove(OnGUIAppLauncherReady);
-
         SaveSettings();
         // well we probably need this to not create a memory leak or so ...
         DestroyGameObjects();
-
-        if (applauncherButton != null)
-        {
-            KSP.UI.Screens.ApplicationLauncher.Instance.RemoveModApplication(applauncherButton);
-            applauncherButton = null;
-        }
-        if (toolbarButton != null)
-            toolbarButton.Destroy();
+        TearDownToolbars();
     }
-
-
-    void OnHideUI()
-    {
-        enableThroughGuiEvent = false;
-        UpdateEnabling();
-    }
-
-
-    void OnShowUI()
-    {
-        enableThroughGuiEvent = true;
-        UpdateEnabling();
-    }
-
-
-    void OnHideTB()
-    {
-        enableThroughToolbar = false;
-        UpdateEnabling();
-    }
-
-    void OnShowTB()
-    {
-        enableThroughToolbar = true;
-        UpdateEnabling();
-    }
-
-    public void OnGUIAppLauncherReady()
-    {
-        if (applauncherButton == null)
-        {
-            applauncherButton = KSP.UI.Screens.ApplicationLauncher.Instance.AddModApplication(
-                OnShowTB,
-                OnHideTB,
-                null,
-                null,
-                null,
-                null,
-                KSP.UI.Screens.ApplicationLauncher.AppScenes.FLIGHT,
-                (Texture)GameDatabase.Instance.GetTexture("KerbalFlightIndicators/icon", false));
-        }
-    }
-
 
     public void SaveSettings()
     {
         ConfigNode settings = new ConfigNode();
         settings.name = "SETTINGS";
-        settings.AddValue("active", enableThroughToolbar);
+        SaveMutableToolbarSettings(settings);
         settings.Save(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/state.cfg");
     }
 
@@ -1705,12 +1635,11 @@ public class KerbalFlightIndicators : MonoBehaviour
     public void LoadSettings()
     {
         ConfigNode settings = new ConfigNode();
-
         // load mutable configuration
         settings = ConfigNode.Load(AssemblyLoader.loadedAssemblies.GetPathByType(typeof(KerbalFlightIndicators)) + "/state.cfg");
         if (settings != null)
         {
-            if (settings.HasValue("active")) enableThroughToolbar = bool.Parse(settings.GetValue("active"));
+            LoadMutableToolbarSettings(settings);
         }
 
         // load configuration that won't be changed in game
@@ -1734,10 +1663,9 @@ public class KerbalFlightIndicators : MonoBehaviour
                     atlas_px[i] = Util.RectOffsetFromString(settings.GetValue("rect"+markerNames[i]));
                 }
             }
+            LoadImmutableToolbarSettings(settings);
             settings.TryGetValue("displayScaleFactor", ref displayScaleFactor);
             settings.TryGetValue("atlasTexture", ref atlasTexture);
-            settings.TryGetValue("useToolbar", ref useToolbar);
-            settings.TryGetValue("useAppLauncher", ref useAppLauncher);
             if (settings.HasValue("horizonColor")) horizonColor = Util.ColorFromString(settings.GetValue("horizonColor"));
             if (settings.HasValue("progradeColor")) progradeColor = Util.ColorFromString(settings.GetValue("progradeColor"));
             if (settings.HasValue("attitudeColor")) attitudeColor = Util.ColorFromString(settings.GetValue("attitudeColor"));
@@ -1746,9 +1674,9 @@ public class KerbalFlightIndicators : MonoBehaviour
     }
 
 
-    private void UpdateEnabling()
+    protected override  void OnGuiVisibilityChange()
     {
-        bool enabled_ = enableThroughGuiEvent && enableThroughToolbar;
+        bool enabled_ = isGuiVisible;
         enabled = enabled_;
         if (cameraScript) cameraScript.gameObject.SetActive(enabled_);
         if (markerParentObject) markerParentObject.SetActive(enabled_);
@@ -1859,7 +1787,7 @@ public class KerbalFlightIndicators : MonoBehaviour
             markerEnabling[i] = true;
         }
         }
-        UpdateEnabling();
+        OnGuiVisibilityChange();
     }
 
 
