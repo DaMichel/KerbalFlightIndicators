@@ -38,21 +38,28 @@
     <Compile Include="ToolbarWrapper.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="GameData\KerbalFlightIndicators\KerbalFlightIndicators.version" />
+    <None Include="GameData\KerbalFlightIndicators\Plugins\PluginData\KerbalFlightIndicators\settings.cfg" />
+    <None Include="GameData\KerbalFlightIndicators\Plugins\PluginData\KerbalFlightIndicators\state.cfg" />
     <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="Assembly-CSharp, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\Games\Kerbal Space Program\KSP_Data\Managed\Assembly-CSharp.dll</HintPath>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\SteamApps\common\Kerbal Space Program\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
-    <Reference Include="Assembly-UnityScript, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\Games\Kerbal Space Program\KSP_Data\Managed\Assembly-UnityScript.dll</HintPath>
+    <Reference Include="Assembly-UnityScript">
+      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\SteamApps\common\Kerbal Space Program\KSP_x64_Data\Managed\Assembly-UnityScript.dll</HintPath>
     </Reference>
-    <Reference Include="UnityEngine, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\Games\Kerbal Space Program\KSP_Data\Managed\UnityEngine.dll</HintPath>
+    <Reference Include="UnityEngine">
+      <HintPath>..\..\..\..\..\..\Program Files (x86)\Steam\SteamApps\common\Kerbal Space Program\KSP_x64_Data\Managed\UnityEngine.dll</HintPath>
     </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="GameData\KerbalFlightIndicators\icon.png" />
+    <Content Include="GameData\KerbalFlightIndicators\Plugins\KerbalFlightIndicators.dll" />
+    <Content Include="GameData\KerbalFlightIndicators\Plugins\PluginData\KerbalFlightIndicators\atlas.png" />
+    <Content Include="GameData\KerbalFlightIndicators\Plugins\PluginData\KerbalFlightIndicators\atlas_old.png" />
+    <Content Include="GameData\KerbalFlightIndicators\toolbarbutton.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>

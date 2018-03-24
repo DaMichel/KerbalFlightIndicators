@@ -1,0 +1,13 @@
+{
+  "NAME": "Kerbal Flight Indicators",
+  "URL": "https://github.com/PapaJoesSoup/KerbalFlightIndicators/GameData/KerbalFlightIndicators/KerbalFlightIndicators.version",
+  "DOWNLOAD": "https://github.com/PapaJoesSoup/KerbalFlightIndicators/releases",
+  "VERSION": {
+    "MAJOR": 16,
+  },
+  "KSP_VERSION": {
+    "MAJOR": 1,
+    "MINOR": 4,
+    "PATCH": 1
+  }
+}
