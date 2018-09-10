@@ -9,10 +9,10 @@ namespace DaMichelToolbarSuperWrapper
 
 public class ToolbarInfo
 {
-    public String name;
-    public String tooltip;
-    public String toolbarTexture;
-    public String launcherTexture;
+    public string name;
+    public string tooltip;
+    public string toolbarTexture;
+    public string launcherTexture;
     public GameScenes[] visibleInScenes;
 };
 

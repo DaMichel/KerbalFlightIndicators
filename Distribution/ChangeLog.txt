@@ -1,0 +1,50 @@
+KerbalFlightIndicators Change Log
+
+R17, 10 Sep, 2018
+* New
+  * Recompiled for KSP 1.4.5
+  * Renamed project to reflect Mod Name (generally accepted practice with KSP mods)
+  * Reorganized code to follow current mod structure best practices. Split classes into separate files for improved visualization of the code.  
+  * Config files moved to PluginData to prevent ModuleManager from needlessly invalidating its part cache.
+  * Added Build/deploy automation to reduce labor, testing and reduce deployment errors.
+  * Added change log to distribution.
+
+* Fixes
+  * Per forum post by dV++, added an OnPostRender handler to prevent game objects from persisting through other cameras' render cycles.  Problem noticed in MAS MFDs
+
+R16, 23 Mar 2018
+* New
+  * Maintainance Change:  Papa_Joe assumed maintanance per permission from DaMichel
+  * Recompiled for KSP 1.4.x (as of KSP 1.4.1)
+  * Added KSP-AVC support
+* Fixes
+  * Resized Applauncher Icon to support new Unity version graphics compression system.
+
+R15, 14 Aug 2017
+* Recompiled for KSP 1.3
+
+R14, 16 Oct 2016
+* Recompiled for KSP 1.2
+
+R13, 10 Jun 2016
+* toolbar refactoring
+
+R12, 17 May 2016
+* fixed on/off toggle
+
+R11, 1 May 2016
+* recompiled for KSP 1.1.2
+* New Graphics 
+* Graphics are now fully configuration thourh the configuration file settings.cfg
+* Now uses app launcher bar in KSP
+* Beware, I rewrote/simplified the important bits of math.  THings are much morre sane now.  In game it should behave like before.
+
+R10, 29 Apr 2015
+* recompiled for KSP ver 1.0
+
+R9, 29 Nov 2014
+* fixed and issue with the path to the setting file (thanks taniwha-qf)
+
+R8, 12 Nov 2014
+* First github release by DaMichel
+* Removed hard dependency on Blizzy Toolbar
