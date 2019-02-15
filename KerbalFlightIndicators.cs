@@ -167,6 +167,7 @@ namespace KerbalFlightIndicators
                 cam.depth = drawInFrontOfCockpit ? 10 : 1;
                 cam.farClipPlane = 2.0f;
                 cam.nearClipPlane = 0.5f;
+                cam.allowHDR = false;
                 o.transform.localPosition = new Vector3(0.5f, 0.5f, 0.0f);
                 o.transform.localRotation = Quaternion.identity;
                 CameraScript cs = cameraScript = o.AddComponent<CameraScript>();
