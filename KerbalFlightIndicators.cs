@@ -1,5 +1,4 @@
-﻿using System;
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace KerbalFlightIndicators
 {
@@ -190,7 +189,7 @@ namespace KerbalFlightIndicators
                     mat.mainTextureOffset = new Vector2(uv.xMin, uv.yMin);
 
                     o = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                    o.name = "KerbalFlightIndicators-"+Enum.GetName(typeof(Markers), i);
+                    o.name = "KerbalFlightIndicators-"+System.Enum.GetName(typeof(Markers), i);
 
                     Component[] colliders = o.GetComponents<Collider>();
                     foreach (var c in colliders)

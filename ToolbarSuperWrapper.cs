@@ -1,5 +1,4 @@
-﻿using System;
-using UnityEngine;
+﻿using UnityEngine;
 
 using AppScenes = KSP.UI.Screens.ApplicationLauncher.AppScenes;
 

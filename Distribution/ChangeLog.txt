@@ -1,5 +1,8 @@
 KerbalFlightIndicators Change Log
 
+R18, 01 Mar, 2021
+* Recompiled for KSP 1.11.1
+
 R17, 10 Sep, 2018
 * New
   * Recompiled for KSP 1.4.5
